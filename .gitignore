@@ -17,3 +17,5 @@ env/
 # Bases de datos
 *.sql
 !schema_actualizado.sql
+
+cod

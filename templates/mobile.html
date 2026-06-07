@@ -480,7 +480,7 @@ let graphData = null;
 async function fetchLatestGraph() {
   const sedeId = "{{ sede_id }}"; // Inyectado por Jinja2
   try {
-    const res = await fetch(`/api/v1/public/sedes/${sedeId}/snapshot`);
+    const res = await fetch(`{{ request.scope.get('root_path', '') }}/api/v1/public/sedes/${sedeId}/snapshot`);
     if (!res.ok) throw new Error('Grafo no disponible');
     graphData = await res.json();
     initMap();

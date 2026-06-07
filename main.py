@@ -24,9 +24,9 @@ async def auth_middleware(request: Request, call_next):
         response = await call_next(request)
         return response
     except HTTPException as exc:
-        if exc.status_code == 401:
-            return RedirectResponse("/login")
-        raise
+            if exc.status_code == 401:
+                return RedirectResponse(f"{request.scope.get('root_path', '')}/login")
+            raise
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
@@ -37,10 +37,10 @@ templates = Jinja2Templates(directory="templates")
 async def root(request: Request, db: Session = Depends(get_db)):
     try:
         user = get_current_user(request, db)
-        return RedirectResponse("/admin")
+        return RedirectResponse(f"{request.scope.get('root_path', '')}/admin")
     except HTTPException as e:
         if e.status_code == 401:
-            return RedirectResponse("/login")
+            return RedirectResponse(f"{request.scope.get('root_path', '')}/login")
         raise
 
 @app.get("/login")
@@ -52,7 +52,7 @@ def post_login(request: Request, email: str = Form(...), password: str = Form(..
     login_data = Login(email=email, password=password)
     try:
         user = login_user(db, login_data)
-        redirect = RedirectResponse("/admin", status_code=303)
+        redirect = RedirectResponse(f"{request.scope.get('root_path', '')}/admin", status_code=303)
         set_auth_cookie(redirect, str(user.id))
         return redirect
     except HTTPException as e:
@@ -61,8 +61,8 @@ def post_login(request: Request, email: str = Form(...), password: str = Form(..
         raise
 
 @app.get("/logout")
-def logout(db: Session = Depends(get_db)):
-    redirect = RedirectResponse("/login", status_code=303)
+def logout(request: Request, db: Session = Depends(get_db)):
+    redirect = RedirectResponse(f"{request.scope.get('root_path', '')}/login", status_code=303)
     redirect.delete_cookie("session")
     return redirect
 

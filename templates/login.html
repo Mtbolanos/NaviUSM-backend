@@ -25,23 +25,23 @@
                     <span class="text-body-secondary">NaviUSM</span>
                 </div>
                 <div class="card shadow-sm border-0 bg-body p-4" style="border-radius: 1rem;">
-                    <form method="post" action="/login">
+                    <form method="post" action="{{ request.scope.get('root_path', '') }}/login">
                         <div class="mb-3">
                             <label for="email" class="form-label small fw-bold">Correo electrónico</label>
                             <input type="email" class="form-control" id="email" name="email" required>
+                        </div>
+                        <div class="mb-4">
+                            <label for="password" class="form-label small fw-bold">Contraseña</label>
+                            <input type="password" class="form-control" id="password" name="password" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100 py-2 fw-bold">Iniciar Sesión</button>
+                    </form>
+                    {% if error %}
+                    <div class="alert alert-danger mt-3 mb-0 small text-center">{{ error }}</div>
+                    {% endif %}
                 </div>
-                <div class="mb-4">
-                    <label for="password" class="form-label small fw-bold">Contraseña</label>
-                    <input type="password" class="form-control" id="password" name="password" required>
-                </div>
-                <button type="submit" class="btn btn-primary w-100 py-2 fw-bold">Iniciar Sesión</button>
-                </form>
-                {% if error %}
-                <div class="alert alert-danger mt-3 mb-0 small text-center">{{ error }}</div>
-                {% endif %}
             </div>
         </div>
-    </div>
     </div>
 </body>
 
