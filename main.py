@@ -13,7 +13,7 @@ from auth import get_current_user, login_user, set_auth_cookie
 from database import get_db
 from models import Sede, Snapshot, Usuario
 from crud import verify_password, change_user_password
-app = FastAPI()
+app = FastAPI(root_path="/naviusm")
 
 # Middleware para solicitar autenticación en rutas protegidas (como administración de mapa)
 @app.middleware("http")
