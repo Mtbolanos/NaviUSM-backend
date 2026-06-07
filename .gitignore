@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Entornos virtuales
+venv/
+env/
+.venv/
+
+# Variables de entorno
+.env
+
+# Archivos de sistema macOS
+.DS_Store
+
+# Bases de datos
+*.sql
+!schema_actualizado.sql

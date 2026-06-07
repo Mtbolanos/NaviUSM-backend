@@ -1,0 +1,45 @@
+# Creación inicial de datos en BD
+from database import SessionLocal
+from models import Organizacion, Sede, Usuario
+from crud import get_hash_password
+from sqlalchemy.exc import IntegrityError
+
+def seed_data():
+    db = SessionLocal()
+    try:
+        # 1. Crear Tenant (Universidad)
+        org = Organizacion(nombre="Universidad Técnica Federico Santa María", slug="usm")
+        db.add(org)
+        db.commit()
+        db.refresh(org)
+
+        # 2. Crear Sede
+        sede = Sede(
+            organizacion_id=org.id, 
+            nombre="Sede Viña del Mar",
+            latitud=-33.036577,     # Centro real del mapa de la USM Viña
+            longitud=-71.486578,
+            zoom_defecto=18
+        )
+        db.add(sede)
+        
+        # 3. Crear Usuario Admin
+        admin = Usuario(
+            organizacion_id=org.id,
+            email="admin@usm.cl",
+            password_hash=get_hash_password("admin123"),
+            rol="admin"
+        )
+        db.add(admin)
+        db.commit()
+        
+        print(f"✅ Setup completado.\nSede ID: {sede.id}\nLogin: admin@usm.cl / admin123")
+        
+    except IntegrityError:
+        db.rollback()
+        print("⚠️ Los datos iniciales ya existen en la base de datos.")
+    finally:
+        db.close()
+
+if __name__ == "__main__":
+    seed_data()
