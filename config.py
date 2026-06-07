@@ -1,6 +1,8 @@
 import os
 import base64
+from dotenv import load_dotenv
 
+load_dotenv()
 
-SECRET_KEY = b'R2cmft08oRoNGSIVTUyrumCeWW1YMX7VuQC3a5b9CJ8='
-DATABASE_URL = "postgresql://naviusm_admin:NaviGantesmish@localhost:5432/naviusmdb" # Conexión a postgreSQL, hay que revisar cuando esté en servidor
+SECRET_KEY = os.getenv('SECRET_KEY')
+DATABASE_URL = os.getenv('DATABASE_URL')
