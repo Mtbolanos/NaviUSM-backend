@@ -14,7 +14,7 @@
             <div class="col-md-6 col-lg-4">
                 <div class="card shadow-sm border-0 bg-body p-4" style="border-radius: 1rem;">
                     <h4 class="fw-bold mb-4 text-center">Cambiar Contraseña</h4>
-                    <form method="post" action="/cambiar-contrasena">
+                    <form method="post" action="{{ request.scope.get('root_path', '') }}/cambiar-contrasena">
                         <div class="mb-3">
                             <label for="old_password" class="form-label small fw-bold">Contraseña actual</label>
                             <input type="password" class="form-control" id="old_password" name="old_password" required>
@@ -23,16 +23,16 @@
                             <label for="new_password" class="form-label small fw-bold">Nueva contraseña</label>
                             <input type="password" class="form-control" id="new_password" name="new_password" required>
                         </div>
-                        <form method="post" action="{{ request.scope.get('root_path', '') }}/cambiar-contrasena">
-                            <a href="{{ request.scope.get('root_path', '') }}/admin"
-                                class="btn btn-outline-secondary w-100 py-2 mt-2 fw-bold">Volver al Editor</a>
-                        </form>
-                        {% if error %}
-                        <div class="alert alert-danger mt-3 mb-0 small text-center">{{ error }}</div>
-                        {% endif %}
-                        {% if success %}
-                        <div class="alert alert-success mt-3 mb-0 small text-center">{{ success }}</div>
-                        {% endif %}
+                        <button type="submit" class="btn btn-primary w-100 py-2 fw-bold">Cambiar Contraseña</button>
+                        <a href="{{ request.scope.get('root_path', '') }}/admin"
+                            class="btn btn-outline-secondary w-100 py-2 mt-2 fw-bold">Volver al Editor</a>
+                    </form>
+                    {% if error %}
+                    <div class="alert alert-danger mt-3 mb-0 small text-center">{{ error }}</div>
+                    {% endif %}
+                    {% if success %}
+                    <div class="alert alert-success mt-3 mb-0 small text-center">{{ success }}</div>
+                    {% endif %}
                 </div>
             </div>
         </div>
