@@ -89,6 +89,31 @@ def admin_panel(request: Request, db: Session = Depends(get_db), user: Usuario =
     return templates.TemplateResponse(request=request, name="admin.html", context={
         "request": request, "user": user, "sedes": sedes, "sedes_json": sedes_data
     })
+
+# --- CRUD DE SEDES ---
+@app.post("/admin/api/sedes")
+def create_sede(payload: dict = Body(...), db: Session = Depends(get_db), user: Usuario = Depends(get_current_user)):
+    nueva_sede = Sede(
+        organizacion_id=user.organizacion_id,
+        nombre=payload.get("nombre", "Nueva Sede"),
+        latitud=payload.get("lat", -33.036577),
+        longitud=payload.get("lng", -71.486578),
+        zoom_defecto=payload.get("zoom", 18)
+    )
+    db.add(nueva_sede)
+    db.commit()
+    return {"success": True}
+
+@app.delete("/admin/api/sedes/{sede_id}")
+def delete_sede(sede_id: str, db: Session = Depends(get_db), user: Usuario = Depends(get_current_user)):
+    sede = db.query(Sede).filter(Sede.id == sede_id, Sede.organizacion_id == user.organizacion_id).first()
+    if not sede:
+        raise HTTPException(404, "Sede no encontrada")
+    db.delete(sede)
+    db.commit()
+    return {"success": True}
+
+# --- Publicación de Snapshot PostGIS ---
 @app.post("/admin/api/sedes/{sede_id}/publish")
 def publish_graph(sede_id: str, payload: dict = Body(...), db: Session = Depends(get_db), user: Usuario = Depends(get_current_user)):
     sede = db.query(Sede).filter(Sede.id == sede_id, Sede.organizacion_id == user.organizacion_id).first()
@@ -107,24 +132,17 @@ def publish_graph(sede_id: str, payload: dict = Body(...), db: Session = Depends
     )
     db.add(new_snapshot)
     
-    # Desempaquetado  espacial en PostGIS
-    
-    # A. Limpieza Idempotente: Borramos los nodos anteriores de esta sede.
-    # Gracias a "ON DELETE CASCADE", esto borrará automáticamente las Aristas y los POIs asociados.
+    # 2. Desempaquetado espacial en PostGIS
     db.execute(text("DELETE FROM nodo WHERE sede_id = :sede_id"), {"sede_id": sede.id})
-    
-    # B. Diccionario de traducción: IDs del Frontend ("N1") -> UUIDs de Postgres
     id_map = {}
     
-    # C. Inserción de Nodos Topológicos y Capa Semántica (POIs)
     for n in payload.get("nodes", []):
         real_uuid = str(uuid.uuid4())
         id_map[n["id"]] = real_uuid
         
-        piso_actual = 1 # Valor por defecto si no se especifica
+        # Leemos la variable tridimensional (piso) inyectada por el nuevo editor
+        piso_actual = n.get("floor", 1)
         
-        # Insertar Nodo en espacio 3D (PointZ).
-        # ST_SetSRID y ST_MakePoint son las funciones de PostGIS.
         db.execute(text("""
             INSERT INTO nodo (id, sede_id, organizacion_id, geom, piso, tipo)
             VALUES (:id, :sede, :org, ST_SetSRID(ST_MakePoint(:lng, :lat, :piso), 4326), :piso, :tipo)
@@ -133,7 +151,6 @@ def publish_graph(sede_id: str, payload: dict = Body(...), db: Session = Depends
             "lng": n["lng"], "lat": n["lat"], "piso": piso_actual, "tipo": n["type"]
         })
         
-        # Si el nodo es una entidad física, lo registramos en POI
         if n["type"] not in ["waypoint", "user"]:
             db.execute(text("""
                 INSERT INTO poi (nodo_id, organizacion_id, nombre, categoria)
@@ -143,9 +160,7 @@ def publish_graph(sede_id: str, payload: dict = Body(...), db: Session = Depends
                 "nombre": n["name"], "cat": n["type"]
             })
 
-    # D. Inserción de Aristas (Grafo de conexiones)
     for e in payload.get("edges", []):
-        # Traducimos "N1" y "N2" a los UUIDs recién creados
         origen_uuid = id_map.get(e["from"])
         destino_uuid = id_map.get(e["to"])
         
