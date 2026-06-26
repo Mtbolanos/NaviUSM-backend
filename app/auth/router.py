@@ -10,7 +10,6 @@ from app.security import get_current_user, login_user, set_auth_cookie, verify_p
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
-templates.env.cache = None
 
 
 def _root_path(request: Request) -> str:
@@ -30,7 +29,7 @@ async def root(request: Request, db: Session = Depends(get_db)):
 
 @router.get("/login")
 def get_login(request: Request):
-    return templates.TemplateResponse(request, "login.html")
+    return templates.TemplateResponse("login.html", {"request": request})
 
 
 @router.post("/login")
@@ -48,7 +47,7 @@ def post_login(
     except HTTPException as e:
         if e.status_code == 400:
             return templates.TemplateResponse(
-                request, "login.html", {"error": "Credenciales inválidas"}
+                "login.html", {"request": request, "error": "Credenciales inválidas"}
             )
         raise
 
@@ -65,7 +64,7 @@ def get_change_password(
     request: Request,
     user: Usuario = Depends(get_current_user),
 ):
-    return templates.TemplateResponse(request, "cambiar_contrasena.html", {"user": user})
+    return templates.TemplateResponse("cambiar_contrasena.html", {"request": request, "user": user})
 
 
 @router.post("/cambiar-contrasena")
@@ -78,13 +77,11 @@ def post_change_password(
 ):
     if not verify_password(old_password, user.password_hash):
         return templates.TemplateResponse(
-            request,
             "cambiar_contrasena.html",
-            {"user": user, "error": "La contraseña actual es incorrecta."},
+            {"request": request, "user": user, "error": "La contraseña actual es incorrecta."},
         )
     change_user_password(db, user, new_password)
     return templates.TemplateResponse(
-        request,
         "cambiar_contrasena.html",
-        {"user": user, "success": "Contraseña actualizada exitosamente."},
+        {"request": request, "user": user, "success": "Contraseña actualizada exitosamente."},
     )
