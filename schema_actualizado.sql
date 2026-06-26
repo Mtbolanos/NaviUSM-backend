@@ -2,15 +2,14 @@
 -- PostgreSQL database dump
 --
 
-\restrict B9rzUnOpQ934M09tfqDk8ZFB4geUrF4uuz2nd23p5IYoLyig3wiZiEJJHL3316n
+\restrict tC6niBTMvvqff4CjxxzVHU2bdrjHjuJba3mfQ0ZQzMpKLcJQpRXaFO7XUpkJ4rL
 
--- Dumped from database version 18.4 (Homebrew)
--- Dumped by pg_dump version 18.4 (Homebrew)
+-- Dumped from database version 16.14 (Ubuntu 16.14-0ubuntu0.24.04.1)
+-- Dumped by pg_dump version 16.14 (Ubuntu 16.14-0ubuntu0.24.04.1)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
 SET idle_in_transaction_session_timeout = 0;
-SET transaction_timeout = 0;
 SET client_encoding = 'UTF8';
 SET standard_conforming_strings = on;
 SELECT pg_catalog.set_config('search_path', '', false);
@@ -27,7 +26,7 @@ CREATE EXTENSION IF NOT EXISTS postgis WITH SCHEMA public;
 
 
 --
--- Name: EXTENSION postgis; Type: COMMENT; Schema: -; Owner: -
+-- Name: EXTENSION postgis; Type: COMMENT; Schema: -; Owner: 
 --
 
 COMMENT ON EXTENSION postgis IS 'PostGIS geometry and geography spatial types and functions';
@@ -38,7 +37,7 @@ SET default_tablespace = '';
 SET default_table_access_method = heap;
 
 --
--- Name: arista; Type: TABLE; Schema: public; Owner: -
+-- Name: arista; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.arista (
@@ -49,12 +48,32 @@ CREATE TABLE public.arista (
     distancia numeric(10,4) NOT NULL,
     es_bidireccional boolean DEFAULT true,
     es_accesible boolean DEFAULT true,
+    source integer,
+    target integer,
     CONSTRAINT chk_origen_destino CHECK ((origen_id <> destino_id))
 );
 
 
+ALTER TABLE public.arista OWNER TO postgres;
+
 --
--- Name: nodo; Type: TABLE; Schema: public; Owner: -
+-- Name: edificio; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.edificio (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    sede_id uuid NOT NULL,
+    organizacion_id uuid NOT NULL,
+    nombre character varying(255) NOT NULL,
+    piso_min integer DEFAULT 1 NOT NULL,
+    piso_max integer DEFAULT 1 NOT NULL
+);
+
+
+ALTER TABLE public.edificio OWNER TO postgres;
+
+--
+-- Name: nodo; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.nodo (
@@ -64,12 +83,38 @@ CREATE TABLE public.nodo (
     geom public.geometry(PointZ,4326) NOT NULL,
     piso integer DEFAULT 1 NOT NULL,
     tipo character varying(50) NOT NULL,
-    created_at timestamp with time zone DEFAULT now()
+    created_at timestamp with time zone DEFAULT now(),
+    edificio_id uuid,
+    gid integer NOT NULL
 );
 
 
+ALTER TABLE public.nodo OWNER TO postgres;
+
 --
--- Name: organizacion; Type: TABLE; Schema: public; Owner: -
+-- Name: nodo_gid_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.nodo_gid_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public.nodo_gid_seq OWNER TO postgres;
+
+--
+-- Name: nodo_gid_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.nodo_gid_seq OWNED BY public.nodo.gid;
+
+
+--
+-- Name: organizacion; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.organizacion (
@@ -80,8 +125,10 @@ CREATE TABLE public.organizacion (
 );
 
 
+ALTER TABLE public.organizacion OWNER TO postgres;
+
 --
--- Name: poi; Type: TABLE; Schema: public; Owner: -
+-- Name: poi; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.poi (
@@ -93,8 +140,10 @@ CREATE TABLE public.poi (
 );
 
 
+ALTER TABLE public.poi OWNER TO postgres;
+
 --
--- Name: ruta_evacuacion; Type: TABLE; Schema: public; Owner: -
+-- Name: ruta_evacuacion; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.ruta_evacuacion (
@@ -106,8 +155,10 @@ CREATE TABLE public.ruta_evacuacion (
 );
 
 
+ALTER TABLE public.ruta_evacuacion OWNER TO postgres;
+
 --
--- Name: ruta_evacuacion_arista; Type: TABLE; Schema: public; Owner: -
+-- Name: ruta_evacuacion_arista; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.ruta_evacuacion_arista (
@@ -117,8 +168,10 @@ CREATE TABLE public.ruta_evacuacion_arista (
 );
 
 
+ALTER TABLE public.ruta_evacuacion_arista OWNER TO postgres;
+
 --
--- Name: sede; Type: TABLE; Schema: public; Owner: -
+-- Name: sede; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.sede (
@@ -132,8 +185,10 @@ CREATE TABLE public.sede (
 );
 
 
+ALTER TABLE public.sede OWNER TO postgres;
+
 --
--- Name: snapshot; Type: TABLE; Schema: public; Owner: -
+-- Name: snapshot; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.snapshot (
@@ -146,8 +201,10 @@ CREATE TABLE public.snapshot (
 );
 
 
+ALTER TABLE public.snapshot OWNER TO postgres;
+
 --
--- Name: usuario; Type: TABLE; Schema: public; Owner: -
+-- Name: usuario; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.usuario (
@@ -162,8 +219,17 @@ CREATE TABLE public.usuario (
 );
 
 
+ALTER TABLE public.usuario OWNER TO postgres;
+
 --
--- Name: arista arista_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: nodo gid; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.nodo ALTER COLUMN gid SET DEFAULT nextval('public.nodo_gid_seq'::regclass);
+
+
+--
+-- Name: arista arista_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.arista
@@ -171,7 +237,23 @@ ALTER TABLE ONLY public.arista
 
 
 --
--- Name: nodo nodo_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: edificio edificio_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.edificio
+    ADD CONSTRAINT edificio_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: nodo nodo_gid_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.nodo
+    ADD CONSTRAINT nodo_gid_key UNIQUE (gid);
+
+
+--
+-- Name: nodo nodo_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.nodo
@@ -179,7 +261,7 @@ ALTER TABLE ONLY public.nodo
 
 
 --
--- Name: organizacion organizacion_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: organizacion organizacion_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.organizacion
@@ -187,7 +269,7 @@ ALTER TABLE ONLY public.organizacion
 
 
 --
--- Name: organizacion organizacion_slug_key; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: organizacion organizacion_slug_key; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.organizacion
@@ -195,7 +277,7 @@ ALTER TABLE ONLY public.organizacion
 
 
 --
--- Name: poi poi_nodo_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: poi poi_nodo_id_key; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.poi
@@ -203,7 +285,7 @@ ALTER TABLE ONLY public.poi
 
 
 --
--- Name: poi poi_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: poi poi_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.poi
@@ -211,7 +293,7 @@ ALTER TABLE ONLY public.poi
 
 
 --
--- Name: ruta_evacuacion_arista ruta_evacuacion_arista_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: ruta_evacuacion_arista ruta_evacuacion_arista_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.ruta_evacuacion_arista
@@ -219,7 +301,7 @@ ALTER TABLE ONLY public.ruta_evacuacion_arista
 
 
 --
--- Name: ruta_evacuacion ruta_evacuacion_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: ruta_evacuacion ruta_evacuacion_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.ruta_evacuacion
@@ -227,7 +309,7 @@ ALTER TABLE ONLY public.ruta_evacuacion
 
 
 --
--- Name: sede sede_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: sede sede_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.sede
@@ -235,7 +317,7 @@ ALTER TABLE ONLY public.sede
 
 
 --
--- Name: snapshot snapshot_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: snapshot snapshot_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.snapshot
@@ -243,7 +325,7 @@ ALTER TABLE ONLY public.snapshot
 
 
 --
--- Name: usuario usuario_email_key; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: usuario usuario_email_key; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.usuario
@@ -251,7 +333,7 @@ ALTER TABLE ONLY public.usuario
 
 
 --
--- Name: usuario usuario_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: usuario usuario_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.usuario
@@ -259,91 +341,91 @@ ALTER TABLE ONLY public.usuario
 
 
 --
--- Name: idx_arista_destino; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_arista_destino; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX idx_arista_destino ON public.arista USING btree (destino_id);
 
 
 --
--- Name: idx_arista_organizacion; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_arista_organizacion; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX idx_arista_organizacion ON public.arista USING btree (organizacion_id);
 
 
 --
--- Name: idx_arista_origen; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_arista_origen; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX idx_arista_origen ON public.arista USING btree (origen_id);
 
 
 --
--- Name: idx_nodo_geom; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_nodo_geom; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX idx_nodo_geom ON public.nodo USING gist (geom);
 
 
 --
--- Name: idx_nodo_organizacion; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_nodo_organizacion; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX idx_nodo_organizacion ON public.nodo USING btree (organizacion_id);
 
 
 --
--- Name: idx_nodo_sede; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_nodo_sede; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX idx_nodo_sede ON public.nodo USING btree (sede_id);
 
 
 --
--- Name: idx_poi_organizacion; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_poi_organizacion; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX idx_poi_organizacion ON public.poi USING btree (organizacion_id);
 
 
 --
--- Name: idx_rea_arista; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_rea_arista; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX idx_rea_arista ON public.ruta_evacuacion_arista USING btree (arista_id);
 
 
 --
--- Name: idx_ruta_evacuacion_sede; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_ruta_evacuacion_sede; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX idx_ruta_evacuacion_sede ON public.ruta_evacuacion USING btree (sede_id);
 
 
 --
--- Name: idx_sede_organizacion; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_sede_organizacion; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX idx_sede_organizacion ON public.sede USING btree (organizacion_id);
 
 
 --
--- Name: idx_snapshot_sede; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_snapshot_sede; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX idx_snapshot_sede ON public.snapshot USING btree (sede_id);
 
 
 --
--- Name: idx_usuario_organizacion; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_usuario_organizacion; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX idx_usuario_organizacion ON public.usuario USING btree (organizacion_id);
 
 
 --
--- Name: arista arista_destino_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: arista arista_destino_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.arista
@@ -351,7 +433,7 @@ ALTER TABLE ONLY public.arista
 
 
 --
--- Name: arista arista_organizacion_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: arista arista_organizacion_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.arista
@@ -359,7 +441,7 @@ ALTER TABLE ONLY public.arista
 
 
 --
--- Name: arista arista_origen_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: arista arista_origen_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.arista
@@ -367,7 +449,31 @@ ALTER TABLE ONLY public.arista
 
 
 --
--- Name: nodo nodo_organizacion_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: edificio edificio_organizacion_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.edificio
+    ADD CONSTRAINT edificio_organizacion_id_fkey FOREIGN KEY (organizacion_id) REFERENCES public.organizacion(id) ON DELETE CASCADE;
+
+
+--
+-- Name: edificio edificio_sede_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.edificio
+    ADD CONSTRAINT edificio_sede_id_fkey FOREIGN KEY (sede_id) REFERENCES public.sede(id) ON DELETE CASCADE;
+
+
+--
+-- Name: nodo nodo_edificio_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.nodo
+    ADD CONSTRAINT nodo_edificio_id_fkey FOREIGN KEY (edificio_id) REFERENCES public.edificio(id) ON DELETE CASCADE;
+
+
+--
+-- Name: nodo nodo_organizacion_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.nodo
@@ -375,7 +481,7 @@ ALTER TABLE ONLY public.nodo
 
 
 --
--- Name: nodo nodo_sede_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: nodo nodo_sede_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.nodo
@@ -383,7 +489,7 @@ ALTER TABLE ONLY public.nodo
 
 
 --
--- Name: poi poi_nodo_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: poi poi_nodo_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.poi
@@ -391,7 +497,7 @@ ALTER TABLE ONLY public.poi
 
 
 --
--- Name: poi poi_organizacion_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: poi poi_organizacion_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.poi
@@ -399,7 +505,7 @@ ALTER TABLE ONLY public.poi
 
 
 --
--- Name: ruta_evacuacion_arista ruta_evacuacion_arista_arista_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: ruta_evacuacion_arista ruta_evacuacion_arista_arista_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.ruta_evacuacion_arista
@@ -407,7 +513,7 @@ ALTER TABLE ONLY public.ruta_evacuacion_arista
 
 
 --
--- Name: ruta_evacuacion_arista ruta_evacuacion_arista_ruta_evacuacion_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: ruta_evacuacion_arista ruta_evacuacion_arista_ruta_evacuacion_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.ruta_evacuacion_arista
@@ -415,7 +521,7 @@ ALTER TABLE ONLY public.ruta_evacuacion_arista
 
 
 --
--- Name: ruta_evacuacion ruta_evacuacion_organizacion_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: ruta_evacuacion ruta_evacuacion_organizacion_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.ruta_evacuacion
@@ -423,7 +529,7 @@ ALTER TABLE ONLY public.ruta_evacuacion
 
 
 --
--- Name: ruta_evacuacion ruta_evacuacion_sede_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: ruta_evacuacion ruta_evacuacion_sede_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.ruta_evacuacion
@@ -431,7 +537,7 @@ ALTER TABLE ONLY public.ruta_evacuacion
 
 
 --
--- Name: sede sede_organizacion_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: sede sede_organizacion_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.sede
@@ -439,7 +545,7 @@ ALTER TABLE ONLY public.sede
 
 
 --
--- Name: snapshot snapshot_organizacion_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: snapshot snapshot_organizacion_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.snapshot
@@ -447,7 +553,7 @@ ALTER TABLE ONLY public.snapshot
 
 
 --
--- Name: snapshot snapshot_sede_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: snapshot snapshot_sede_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.snapshot
@@ -455,7 +561,7 @@ ALTER TABLE ONLY public.snapshot
 
 
 --
--- Name: usuario usuario_organizacion_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: usuario usuario_organizacion_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.usuario
@@ -463,43 +569,43 @@ ALTER TABLE ONLY public.usuario
 
 
 --
--- Name: arista; Type: ROW SECURITY; Schema: public; Owner: -
+-- Name: arista; Type: ROW SECURITY; Schema: public; Owner: postgres
 --
 
 ALTER TABLE public.arista ENABLE ROW LEVEL SECURITY;
 
 --
--- Name: nodo; Type: ROW SECURITY; Schema: public; Owner: -
+-- Name: nodo; Type: ROW SECURITY; Schema: public; Owner: postgres
 --
 
 ALTER TABLE public.nodo ENABLE ROW LEVEL SECURITY;
 
 --
--- Name: poi; Type: ROW SECURITY; Schema: public; Owner: -
+-- Name: poi; Type: ROW SECURITY; Schema: public; Owner: postgres
 --
 
 ALTER TABLE public.poi ENABLE ROW LEVEL SECURITY;
 
 --
--- Name: ruta_evacuacion; Type: ROW SECURITY; Schema: public; Owner: -
+-- Name: ruta_evacuacion; Type: ROW SECURITY; Schema: public; Owner: postgres
 --
 
 ALTER TABLE public.ruta_evacuacion ENABLE ROW LEVEL SECURITY;
 
 --
--- Name: sede; Type: ROW SECURITY; Schema: public; Owner: -
+-- Name: sede; Type: ROW SECURITY; Schema: public; Owner: postgres
 --
 
 ALTER TABLE public.sede ENABLE ROW LEVEL SECURITY;
 
 --
--- Name: snapshot; Type: ROW SECURITY; Schema: public; Owner: -
+-- Name: snapshot; Type: ROW SECURITY; Schema: public; Owner: postgres
 --
 
 ALTER TABLE public.snapshot ENABLE ROW LEVEL SECURITY;
 
 --
--- Name: usuario; Type: ROW SECURITY; Schema: public; Owner: -
+-- Name: usuario; Type: ROW SECURITY; Schema: public; Owner: postgres
 --
 
 ALTER TABLE public.usuario ENABLE ROW LEVEL SECURITY;
@@ -508,5 +614,5 @@ ALTER TABLE public.usuario ENABLE ROW LEVEL SECURITY;
 -- PostgreSQL database dump complete
 --
 
-\unrestrict B9rzUnOpQ934M09tfqDk8ZFB4geUrF4uuz2nd23p5IYoLyig3wiZiEJJHL3316n
+\unrestrict tC6niBTMvvqff4CjxxzVHU2bdrjHjuJba3mfQ0ZQzMpKLcJQpRXaFO7XUpkJ4rL
 

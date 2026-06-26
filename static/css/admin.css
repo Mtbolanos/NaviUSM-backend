@@ -77,3 +77,40 @@ body { font-family: 'Space Grotesk', sans-serif; background: var(--naviusm-bg); 
 .graph-node.type-user { background: #1e4080; border-color: white; width: 18px !important; height: 18px !important; }
 .graph-node:not(.type-waypoint):not(.type-user) { background: #1a0a2e; border-color: #a78bfa; font-size: 14px; }
 .leaflet-tile { filter: brightness(0.72) contrast(1.05) saturate(0.85) !important; }
+
+/* Corrección de colores para selectores y modales oscuros */
+.form-control, .form-select, .sede-select {
+  background-color: var(--naviusm-surface2) !important;
+  color: var(--naviusm-text) !important;
+  border: 1px solid var(--naviusm-border) !important;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+}
+
+/* Reescritura del SVG de Bootstrap para que la flecha sea clara */
+select.form-select, select.sede-select {
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23e0eaf5' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3e%3c/svg%3e") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 0.75rem center !important;
+  background-size: 16px 12px !important;
+  padding-right: 2rem !important;
+}
+
+.form-control:focus, .form-select:focus, .sede-select:focus {
+  background-color: var(--naviusm-bg) !important;
+  color: #ffffff !important;
+  border-color: var(--naviusm-accent) !important;
+  box-shadow: 0 0 0 2px rgba(245, 166, 35, 0.3) !important;
+}
+
+/* Opciones del selector */
+select option {
+  background-color: var(--naviusm-bg) !important;
+  color: #ffffff !important;
+}
+
+/* Placeholder */
+.form-control::placeholder {
+  color: var(--naviusm-muted) !important;
+}
