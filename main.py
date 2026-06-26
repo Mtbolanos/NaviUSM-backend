@@ -207,18 +207,18 @@ def publish_graph(sede_id: str, payload: dict = Body(...), db: Session = Depends
         db.execute(text("""
             DELETE FROM arista WHERE organizacion_id = :org AND id IN (
                 SELECT a.id FROM arista a JOIN nodo n ON a.origen_id = n.id WHERE n.sede_id = :sede
-            ) AND id != ALL(:in_edges)
+            ) AND id != ALL(CAST(:in_edges AS uuid[]))
         """), {"org": user.organizacion_id, "sede": sede.id, "in_edges": incoming_edges})
     else:
         db.execute(text("DELETE FROM arista WHERE id IN (SELECT a.id FROM arista a JOIN nodo n ON a.origen_id = n.id WHERE n.sede_id = :sede)"), {"sede": sede.id})
 
     if incoming_nodes:
-        db.execute(text("DELETE FROM nodo WHERE sede_id = :sede AND id != ALL(:in_nodes)"), {"sede": sede.id, "in_nodes": incoming_nodes})
+        db.execute(text("DELETE FROM nodo WHERE sede_id = :sede AND id != ALL(CAST(:in_nodes AS uuid[]))"), {"sede": sede.id, "in_nodes": incoming_nodes})
     else:
         db.execute(text("DELETE FROM nodo WHERE sede_id = :sede"), {"sede": sede.id})
 
     if incoming_blds:
-        db.execute(text("DELETE FROM edificio WHERE sede_id = :sede AND id != ALL(:in_blds)"), {"sede": sede.id, "in_blds": incoming_blds})
+        db.execute(text("DELETE FROM edificio WHERE sede_id = :sede AND id != ALL(CAST(:in_blds AS uuid[]))"), {"sede": sede.id, "in_blds": incoming_blds})
     else:
         db.execute(text("DELETE FROM edificio WHERE sede_id = :sede"), {"sede": sede.id})
 
