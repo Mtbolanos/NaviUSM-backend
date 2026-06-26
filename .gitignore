@@ -18,5 +18,4 @@ env/
 *.sql
 !schema_actualizado.sql
 
-# Scripts de configuración
-setup_db.sh
+cod

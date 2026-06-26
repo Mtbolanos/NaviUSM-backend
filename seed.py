@@ -1,7 +1,7 @@
 # Creación inicial de datos en BD
-from app.database import SessionLocal
-from app.models import Organizacion, Sede, Usuario
-from app.security import get_hash_password
+from database import SessionLocal
+from models import Organizacion, Sede, Usuario
+from crud import get_hash_password
 from sqlalchemy.exc import IntegrityError
 
 def seed_data():
