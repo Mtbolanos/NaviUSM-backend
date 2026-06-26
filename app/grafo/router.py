@@ -9,6 +9,7 @@ from app.security import get_current_user
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
+templates.env.cache = None
 
 
 @router.post("/admin/api/sedes/{sede_id}/publish")
@@ -30,7 +31,7 @@ def publish_graph(
 
 @router.get("/app-test/{sede_id}")
 def get_mobile_test(request: Request, sede_id: str):
-    return templates.TemplateResponse("mobile.html", {"request": request, "sede_id": sede_id})
+    return templates.TemplateResponse(request, "mobile.html", {"sede_id": sede_id})
 
 
 @router.get("/api/v1/public/sedes/{sede_id}/snapshot")

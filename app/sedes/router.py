@@ -9,6 +9,7 @@ from app.sedes.crud import create_sede, delete_sede, get_sedes_by_org
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
+templates.env.cache = None
 
 
 @router.get("/admin")
@@ -23,8 +24,9 @@ def admin_panel(
         for s in sedes
     ]
     return templates.TemplateResponse(
+        request,
         "admin.html",
-        {"request": request, "user": user, "sedes": sedes, "sedes_json": sedes_data},
+        {"user": user, "sedes": sedes, "sedes_json": sedes_data},
     )
 
 
