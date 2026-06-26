@@ -120,61 +120,110 @@ def publish_graph(sede_id: str, payload: dict = Body(...), db: Session = Depends
     if not sede:
         raise HTTPException(404, "Sede no encontrada o sin acceso")
 
-    # 1. Guardar Snapshot (Para el consumo offline del móvil)
+    # 1. Guardar Snapshot para la App Móvil (Offline)
     last_snap = db.query(Snapshot).filter(Snapshot.sede_id == sede.id).order_by(desc(Snapshot.version)).first()
     new_version = (last_snap.version + 1) if last_snap else 1
-
-    new_snapshot = Snapshot(
-        sede_id=sede.id,
-        organizacion_id=user.organizacion_id,
-        payload=payload,
-        version=new_version
-    )
+    new_snapshot = Snapshot(sede_id=sede.id, organizacion_id=user.organizacion_id, payload=payload, version=new_version)
     db.add(new_snapshot)
     
-    # 2. Desempaquetado espacial en PostGIS
-    db.execute(text("DELETE FROM nodo WHERE sede_id = :sede_id"), {"sede_id": sede.id})
-    id_map = {}
-    
-    for n in payload.get("nodes", []):
-        real_uuid = str(uuid.uuid4())
-        id_map[n["id"]] = real_uuid
-        
-        # Leemos la variable tridimensional (piso) inyectada por el nuevo editor
-        piso_actual = n.get("floor", 1)
-        
+    # 2. Sincronización Espacial Inteligente (UPSERT)
+    incoming_blds = []
+    for b in payload.get("buildings", []):
+        if b["id"] == 'exterior': continue
+        incoming_blds.append(b["id"])
         db.execute(text("""
-            INSERT INTO nodo (id, sede_id, organizacion_id, geom, piso, tipo)
-            VALUES (:id, :sede, :org, ST_SetSRID(ST_MakePoint(:lng, :lat, :piso), 4326), :piso, :tipo)
+            INSERT INTO edificio (id, sede_id, organizacion_id, nombre, piso_min, piso_max)
+            VALUES (:id, :sede, :org, :nombre, :p_min, :p_max)
+            ON CONFLICT (id) DO UPDATE SET
+                nombre = EXCLUDED.nombre,
+                piso_min = EXCLUDED.piso_min,
+                piso_max = EXCLUDED.piso_max
         """), {
-            "id": real_uuid, "sede": sede.id, "org": user.organizacion_id,
-            "lng": n["lng"], "lat": n["lat"], "piso": piso_actual, "tipo": n["type"]
+            "id": b["id"], "sede": sede.id, "org": user.organizacion_id,
+            "nombre": b["name"], "p_min": b["min"], "p_max": b["max"]
+        })
+
+    incoming_nodes = []
+    for n in payload.get("nodes", []):
+        incoming_nodes.append(n["id"])
+        edificio_uuid = n.get("building") if n.get("building") != 'exterior' else None
+        
+        # Upsert de Nodo
+        db.execute(text("""
+            INSERT INTO nodo (id, sede_id, organizacion_id, geom, piso, tipo, edificio_id)
+            VALUES (:id, :sede, :org, ST_SetSRID(ST_MakePoint(:lng, :lat, :piso), 4326), :piso, :tipo, :edificio_id)
+            ON CONFLICT (id) DO UPDATE SET
+                geom = EXCLUDED.geom,
+                piso = EXCLUDED.piso,
+                tipo = EXCLUDED.tipo,
+                edificio_id = EXCLUDED.edificio_id
+        """), {
+            "id": n["id"], "sede": sede.id, "org": user.organizacion_id,
+            "lng": n["lng"], "lat": n["lat"], "piso": n.get("floor", 1), "tipo": n["type"],
+            "edificio_id": edificio_uuid
         })
         
+        # Upsert de Puntos de Interés
         if n["type"] not in ["waypoint", "user"]:
             db.execute(text("""
                 INSERT INTO poi (nodo_id, organizacion_id, nombre, categoria)
                 VALUES (:nodo, :org, :nombre, :cat)
+                ON CONFLICT (nodo_id) DO UPDATE SET
+                    nombre = EXCLUDED.nombre,
+                    categoria = EXCLUDED.categoria
             """), {
-                "nodo": real_uuid, "org": user.organizacion_id,
+                "nodo": n["id"], "org": user.organizacion_id,
                 "nombre": n["name"], "cat": n["type"]
             })
+        else:
+            # Si era POI y ahora es waypoint, borrar el POI
+            db.execute(text("DELETE FROM poi WHERE nodo_id = :nodo"), {"nodo": n["id"]})
 
+    incoming_edges = []
     for e in payload.get("edges", []):
-        origen_uuid = id_map.get(e["from"])
-        destino_uuid = id_map.get(e["to"])
-        
-        if origen_uuid and destino_uuid:
-            db.execute(text("""
-                INSERT INTO arista (id, origen_id, destino_id, organizacion_id, distancia)
-                VALUES (:id, :origen, :destino, :org, :distancia)
-            """), {
-                "id": str(uuid.uuid4()), "origen": origen_uuid, "destino": destino_uuid,
-                "org": user.organizacion_id, "distancia": e["weight"]
-            })
+        incoming_edges.append(e["id"])
+        # Upsert de Arista
+        db.execute(text("""
+            INSERT INTO arista (id, origen_id, destino_id, organizacion_id, distancia)
+            VALUES (:id, :origen, :destino, :org, :distancia)
+            ON CONFLICT (id) DO UPDATE SET
+                distancia = EXCLUDED.distancia
+        """), {
+            "id": e["id"], "origen": e["from"], "destino": e["to"],
+            "org": user.organizacion_id, "distancia": e["weight"]
+        })
+
+    # Preparar Aristas para pgRouting asignando los 'gid' (secuencial) de los Nodos a source y target
+    db.execute(text("""
+        UPDATE arista a
+        SET source = n1.gid, target = n2.gid
+        FROM nodo n1, nodo n2
+        WHERE a.origen_id = n1.id AND a.destino_id = n2.id
+          AND a.organizacion_id = :org
+    """), {"org": user.organizacion_id})
+
+    # 3. Limpieza de huérfanos (Borrar lo que se eliminó en el editor web)
+    if incoming_edges:
+        db.execute(text("""
+            DELETE FROM arista WHERE organizacion_id = :org AND id IN (
+                SELECT a.id FROM arista a JOIN nodo n ON a.origen_id = n.id WHERE n.sede_id = :sede
+            ) AND id != ALL(:in_edges)
+        """), {"org": user.organizacion_id, "sede": sede.id, "in_edges": incoming_edges})
+    else:
+        db.execute(text("DELETE FROM arista WHERE id IN (SELECT a.id FROM arista a JOIN nodo n ON a.origen_id = n.id WHERE n.sede_id = :sede)"), {"sede": sede.id})
+
+    if incoming_nodes:
+        db.execute(text("DELETE FROM nodo WHERE sede_id = :sede AND id != ALL(:in_nodes)"), {"sede": sede.id, "in_nodes": incoming_nodes})
+    else:
+        db.execute(text("DELETE FROM nodo WHERE sede_id = :sede"), {"sede": sede.id})
+
+    if incoming_blds:
+        db.execute(text("DELETE FROM edificio WHERE sede_id = :sede AND id != ALL(:in_blds)"), {"sede": sede.id, "in_blds": incoming_blds})
+    else:
+        db.execute(text("DELETE FROM edificio WHERE sede_id = :sede"), {"sede": sede.id})
 
     db.commit()
-    return {"message": "Grafo publicado y procesado espacialmente", "version": new_version}
+    return {"message": "Grafo publicado sin pérdida de integridad", "version": new_version}
 
 # ------- Rutas de la App Móvil (API Pública y Test) -------
 # Renderizar prototipo según sede

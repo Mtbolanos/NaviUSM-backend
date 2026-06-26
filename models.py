@@ -54,3 +54,13 @@ class Snapshot(Base):
 
     sede = relationship("Sede", back_populates="snapshots")
     organizacion = relationship("Organizacion", back_populates="snapshots")
+
+class Edificio(Base):
+    __tablename__ = "edificio"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
+    sede_id = Column(UUID(as_uuid=True), ForeignKey("sede.id", ondelete="CASCADE"), nullable=False)
+    organizacion_id = Column(UUID(as_uuid=True), ForeignKey("organizacion.id", ondelete="CASCADE"), nullable=False)
+    nombre = Column(String(255), nullable=False)
+    piso_min = Column(Integer, nullable=False, default=1)
+    piso_max = Column(Integer, nullable=False, default=1)
