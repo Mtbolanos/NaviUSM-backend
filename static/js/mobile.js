@@ -1,6 +1,4 @@
 let graphData = null;
-let userWatchId = null; // ID del watcher de GPS
-const DYNAMIC_USER_ID = 'user-dynamic-node'; // ID estático para el nodo inyectado
 
 async function fetchLatestGraph() {
   const sedeId = window.APP_CONFIG.sedeId;
@@ -10,7 +8,6 @@ async function fetchLatestGraph() {
     if (!res.ok) throw new Error('Grafo no disponible');
     graphData = await res.json();
     initMap();
-    initGeolocation();
   } catch (err) {
     console.error(err);
     document.getElementById('s-map').innerHTML = `
@@ -542,69 +539,4 @@ function toast(msg) {
   el.classList.add('on');
   clearTimeout(_toastTimer);
   _toastTimer = setTimeout(() => el.classList.remove('on'), 2800);
-}
-
-// ══════════════════════════════════════════════════════════
-// GEOLOCALIZACIÓN Y NODO DINÁMICO
-// ══════════════════════════════════════════════════════════
-function initGeolocation() {
-  if (!("geolocation" in navigator)) {
-    toast("❌ Tu dispositivo no soporta GPS");
-    return;
-  }
-
-  // watchPosition actualiza constantemente a medida que el usuario camina
-  userWatchId = navigator.geolocation.watchPosition(
-    (pos) => updateUserNode(pos.coords.latitude, pos.coords.longitude),
-    (err) => console.warn("Error GPS:", err),
-    { enableHighAccuracy: true, maximumAge: 2000, timeout: 10000 }
-  );
-}
-
-function updateUserNode(lat, lng) {
-  if (!graphData) return;
-
-  // 1. Buscar o crear el nodo de usuario dinámico
-  let uNode = graphData.nodes.find(n => n.id === DYNAMIC_USER_ID);
-  if (!uNode) {
-    uNode = { id: DYNAMIC_USER_ID, type: 'user', lat: lat, lng: lng, floor: 1, name: "Tu ubicación" };
-    graphData.nodes.push(uNode);
-  } else {
-    uNode.lat = lat;
-    uNode.lng = lng;
-  }
-
-  // 2. Limpiar "aristas virtuales" anteriores para no ensuciar el grafo
-  graphData.edges = graphData.edges.filter(e => e.from !== DYNAMIC_USER_ID && e.to !== DYNAMIC_USER_ID);
-
-  // 3. Encontrar el nodo físico del mapa más cercano para "colgarse" del grafo
-  let nearestNode = null;
-  let minDist = Infinity;
-  graphData.nodes.forEach(n => {
-    if (n.id === DYNAMIC_USER_ID) return;
-    const d = haversine(lat, lng, n.lat, n.lng);
-    if (d < minDist) { minDist = d; nearestNode = n; }
-  });
-
-  // 4. Crear puentes bidireccionales virtuales hacia la red
-  if (nearestNode) {
-    graphData.edges.push({ id: 'edge-out', from: DYNAMIC_USER_ID, to: nearestNode.id, weight: minDist });
-    graphData.edges.push({ id: 'edge-in', from: nearestNode.id, to: DYNAMIC_USER_ID, weight: minDist });
-  }
-
-  // 5. Actualizar la UI del mapa principal
-  if (mapMain) {
-    if (nodeMarkers[DYNAMIC_USER_ID]) {
-      nodeMarkers[DYNAMIC_USER_ID].marker.setLatLng([lat, lng]);
-      nodeMarkers[DYNAMIC_USER_ID].data = uNode;
-    } else {
-      initNodeMarkers();
-      mapMain.setView([lat, lng], 19);
-    }
-
-    if (selectedNode && document.getElementById('bcard').classList.contains('show')) {
-      const dest = graphData.nodes.find(n => n.id === selectedNode);
-      if (dest) document.getElementById('bcard-desc').textContent = '~' + estimateDist(dest) + ' · Toca "Ir" para navegar';
-    }
-  }
 }
