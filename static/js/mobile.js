@@ -141,7 +141,7 @@ function initMap() {
   mapMain = L.map('map', { zoomControl: false, attributionControl: false })
     .setView([center.lat, center.lng], 18);
 
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 20 }).addTo(mapMain);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(mapMain);
 
   initNodeMarkers();
 }
@@ -273,7 +273,7 @@ function renderRouteMap(result, destData) {
 
   setTimeout(() => mapRoute && mapRoute.invalidateSize(), 300);
 
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 20 }).addTo(mapRoute);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(mapRoute);
 
   L.polyline(pathCoords, {
     color: '#ffffff', weight: 13, opacity: 0.9, lineCap: 'round', lineJoin: 'round'

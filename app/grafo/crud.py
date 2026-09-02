@@ -117,7 +117,7 @@ def publish_graph_data(db: Session, sede: Sede, payload: dict, org_id) -> int:
             text("""
                 DELETE FROM arista WHERE organizacion_id = :org AND id IN (
                     SELECT a.id FROM arista a JOIN nodo n ON a.origen_id = n.id WHERE n.sede_id = :sede
-                ) AND id != ALL(:in_edges)
+                ) AND id != ALL(CAST(:in_edges AS uuid[]))
             """),
             {"org": org_id, "sede": sede.id, "in_edges": incoming_edges},
         )
@@ -129,7 +129,7 @@ def publish_graph_data(db: Session, sede: Sede, payload: dict, org_id) -> int:
 
     if incoming_nodes:
         db.execute(
-            text("DELETE FROM nodo WHERE sede_id = :sede AND id != ALL(:in_nodes)"),
+            text("DELETE FROM nodo WHERE sede_id = :sede AND id != ALL(CAST(:in_nodes AS uuid[]))"),
             {"sede": sede.id, "in_nodes": incoming_nodes},
         )
     else:
@@ -137,7 +137,7 @@ def publish_graph_data(db: Session, sede: Sede, payload: dict, org_id) -> int:
 
     if incoming_blds:
         db.execute(
-            text("DELETE FROM edificio WHERE sede_id = :sede AND id != ALL(:in_blds)"),
+            text("DELETE FROM edificio WHERE sede_id = :sede AND id != ALL(CAST(:in_blds AS uuid[]))"),
             {"sede": sede.id, "in_blds": incoming_blds},
         )
     else:
