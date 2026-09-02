@@ -56,3 +56,9 @@ psql -U <usuario> -d <base> -f migracion_zonas_salas.sql
 ```
 
 Ver también `docker/README.md` para más detalle sobre el setup de Docker.
+
+## Más documentación
+
+- `docs/CHANGELOG.md` — resumen de todo el trabajo de la sesión que agregó Zonas/Salas/Docker, agrupado por tema.
+- `docs/CAMBIOS-JSON-SNAPSHOT.md` — cómo cambió la forma del JSON público (nueva key `zonas`, campos nuevos en nodos tipo `servicio`).
+- `docs/MAPEO-REESTRUCTURACION.md` — mapa de qué archivo plano (de `origin/develop`) quedó dónde dentro del paquete `app/`, útil para reconciliar ambas ramas.
