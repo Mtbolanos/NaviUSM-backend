@@ -136,7 +136,10 @@ CREATE TABLE public.poi (
     nodo_id uuid NOT NULL,
     organizacion_id uuid NOT NULL,
     nombre character varying(255) NOT NULL,
-    categoria character varying(100) NOT NULL
+    categoria character varying(100) NOT NULL,
+    horario character varying(255),
+    descripcion text,
+    link_derivacion character varying(500)
 );
 
 
@@ -204,6 +207,21 @@ CREATE TABLE public.snapshot (
 ALTER TABLE public.snapshot OWNER TO postgres;
 
 --
+-- Name: sala; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.sala (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    edificio_id uuid NOT NULL,
+    organizacion_id uuid NOT NULL,
+    piso integer NOT NULL,
+    nombre character varying(255) NOT NULL
+);
+
+
+ALTER TABLE public.sala OWNER TO postgres;
+
+--
 -- Name: usuario; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -220,6 +238,49 @@ CREATE TABLE public.usuario (
 
 
 ALTER TABLE public.usuario OWNER TO postgres;
+
+--
+-- Name: caracteristica; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.caracteristica (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    codigo character varying(100) NOT NULL,
+    nombre character varying(255) NOT NULL,
+    color_hex character varying(7) NOT NULL
+);
+
+
+ALTER TABLE public.caracteristica OWNER TO postgres;
+
+--
+-- Name: zona; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.zona (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    sede_id uuid NOT NULL,
+    organizacion_id uuid NOT NULL,
+    edificio_id uuid,
+    nombre character varying(255),
+    geom public.geometry(Polygon,4326) NOT NULL,
+    color_hex character varying(7)
+);
+
+
+ALTER TABLE public.zona OWNER TO postgres;
+
+--
+-- Name: zona_caracteristica; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.zona_caracteristica (
+    zona_id uuid NOT NULL,
+    caracteristica_id uuid NOT NULL
+);
+
+
+ALTER TABLE public.zona_caracteristica OWNER TO postgres;
 
 --
 -- Name: nodo gid; Type: DEFAULT; Schema: public; Owner: postgres
@@ -325,6 +386,14 @@ ALTER TABLE ONLY public.snapshot
 
 
 --
+-- Name: sala sala_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.sala
+    ADD CONSTRAINT sala_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: usuario usuario_email_key; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -338,6 +407,38 @@ ALTER TABLE ONLY public.usuario
 
 ALTER TABLE ONLY public.usuario
     ADD CONSTRAINT usuario_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: caracteristica caracteristica_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.caracteristica
+    ADD CONSTRAINT caracteristica_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: caracteristica caracteristica_codigo_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.caracteristica
+    ADD CONSTRAINT caracteristica_codigo_key UNIQUE (codigo);
+
+
+--
+-- Name: zona zona_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.zona
+    ADD CONSTRAINT zona_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: zona_caracteristica zona_caracteristica_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.zona_caracteristica
+    ADD CONSTRAINT zona_caracteristica_pkey PRIMARY KEY (zona_id, caracteristica_id);
 
 
 --
@@ -418,10 +519,45 @@ CREATE INDEX idx_snapshot_sede ON public.snapshot USING btree (sede_id);
 
 
 --
+-- Name: idx_sala_edificio_piso; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_sala_edificio_piso ON public.sala USING btree (edificio_id, piso);
+
+
+--
 -- Name: idx_usuario_organizacion; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX idx_usuario_organizacion ON public.usuario USING btree (organizacion_id);
+
+
+--
+-- Name: idx_zona_geom; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_zona_geom ON public.zona USING gist (geom);
+
+
+--
+-- Name: idx_zona_sede; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_zona_sede ON public.zona USING btree (sede_id);
+
+
+--
+-- Name: idx_zona_organizacion; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_zona_organizacion ON public.zona USING btree (organizacion_id);
+
+
+--
+-- Name: idx_zc_caracteristica; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_zc_caracteristica ON public.zona_caracteristica USING btree (caracteristica_id);
 
 
 --
@@ -545,6 +681,22 @@ ALTER TABLE ONLY public.sede
 
 
 --
+-- Name: sala sala_edificio_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.sala
+    ADD CONSTRAINT sala_edificio_id_fkey FOREIGN KEY (edificio_id) REFERENCES public.edificio(id) ON DELETE CASCADE;
+
+
+--
+-- Name: sala sala_organizacion_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.sala
+    ADD CONSTRAINT sala_organizacion_id_fkey FOREIGN KEY (organizacion_id) REFERENCES public.organizacion(id) ON DELETE CASCADE;
+
+
+--
 -- Name: snapshot snapshot_organizacion_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -566,6 +718,46 @@ ALTER TABLE ONLY public.snapshot
 
 ALTER TABLE ONLY public.usuario
     ADD CONSTRAINT usuario_organizacion_id_fkey FOREIGN KEY (organizacion_id) REFERENCES public.organizacion(id) ON DELETE CASCADE;
+
+
+--
+-- Name: zona zona_sede_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.zona
+    ADD CONSTRAINT zona_sede_id_fkey FOREIGN KEY (sede_id) REFERENCES public.sede(id) ON DELETE CASCADE;
+
+
+--
+-- Name: zona zona_organizacion_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.zona
+    ADD CONSTRAINT zona_organizacion_id_fkey FOREIGN KEY (organizacion_id) REFERENCES public.organizacion(id) ON DELETE CASCADE;
+
+
+--
+-- Name: zona zona_edificio_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.zona
+    ADD CONSTRAINT zona_edificio_id_fkey FOREIGN KEY (edificio_id) REFERENCES public.edificio(id) ON DELETE CASCADE;
+
+
+--
+-- Name: zona_caracteristica zona_caracteristica_zona_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.zona_caracteristica
+    ADD CONSTRAINT zona_caracteristica_zona_id_fkey FOREIGN KEY (zona_id) REFERENCES public.zona(id) ON DELETE CASCADE;
+
+
+--
+-- Name: zona_caracteristica zona_caracteristica_caracteristica_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.zona_caracteristica
+    ADD CONSTRAINT zona_caracteristica_caracteristica_id_fkey FOREIGN KEY (caracteristica_id) REFERENCES public.caracteristica(id) ON DELETE CASCADE;
 
 
 --
@@ -605,10 +797,22 @@ ALTER TABLE public.sede ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.snapshot ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: sala; Type: ROW SECURITY; Schema: public; Owner: postgres
+--
+
+ALTER TABLE public.sala ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: usuario; Type: ROW SECURITY; Schema: public; Owner: postgres
 --
 
 ALTER TABLE public.usuario ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: zona; Type: ROW SECURITY; Schema: public; Owner: postgres
+--
+
+ALTER TABLE public.zona ENABLE ROW LEVEL SECURITY;
 
 --
 -- PostgreSQL database dump complete

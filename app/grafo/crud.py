@@ -2,6 +2,7 @@ from sqlalchemy import desc, text
 from sqlalchemy.orm import Session
 
 from app.models import Sede, Snapshot
+from app.zonas.crud import upsert_zonas
 
 
 def get_latest_snapshot(db: Session, sede_id: str):
@@ -74,13 +75,20 @@ def publish_graph_data(db: Session, sede: Sede, payload: dict, org_id) -> int:
         if n["type"] not in ["waypoint", "user"]:
             db.execute(
                 text("""
-                    INSERT INTO poi (nodo_id, organizacion_id, nombre, categoria)
-                    VALUES (:nodo, :org, :nombre, :cat)
+                    INSERT INTO poi (nodo_id, organizacion_id, nombre, categoria, horario, descripcion, link_derivacion)
+                    VALUES (:nodo, :org, :nombre, :cat, :horario, :descripcion, :link)
                     ON CONFLICT (nodo_id) DO UPDATE SET
                         nombre = EXCLUDED.nombre,
-                        categoria = EXCLUDED.categoria
+                        categoria = EXCLUDED.categoria,
+                        horario = EXCLUDED.horario,
+                        descripcion = EXCLUDED.descripcion,
+                        link_derivacion = EXCLUDED.link_derivacion
                 """),
-                {"nodo": n["id"], "org": org_id, "nombre": n["name"], "cat": n["type"]},
+                {
+                    "nodo": n["id"], "org": org_id, "nombre": n["name"], "cat": n["type"],
+                    "horario": n.get("horario"),
+                    "descripcion": n.get("descripcion"), "link": n.get("link_derivacion"),
+                },
             )
         else:
             db.execute(text("DELETE FROM poi WHERE nodo_id = :nodo"), {"nodo": n["id"]})
@@ -142,6 +150,9 @@ def publish_graph_data(db: Session, sede: Sede, payload: dict, org_id) -> int:
         )
     else:
         db.execute(text("DELETE FROM edificio WHERE sede_id = :sede"), {"sede": sede.id})
+
+    # 7. UPSERT de Zonas (contornos de edificio, zonas seguras/silenciosas/accesibles)
+    upsert_zonas(db, sede, payload.get("zonas", []), org_id)
 
     db.commit()
     return new_version

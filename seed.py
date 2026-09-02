@@ -1,8 +1,31 @@
 # Creación inicial de datos en BD
 from app.database import SessionLocal
-from app.models import Organizacion, Sede, Usuario
+from app.models import Caracteristica, Organizacion, Sede, Usuario
 from app.security import get_hash_password
 from sqlalchemy.exc import IntegrityError
+
+CARACTERISTICAS = [
+    ("zona_segura", "Zona segura", "#1f7a5c"),
+    ("zona_silenciosa", "Zona silenciosa", "#5c4d99"),
+    ("accesible_silla_ruedas", "Accesible en silla de ruedas", "#b5651d"),
+    ("contorno_edificio", "Contorno de edificio", "#3b6e8f"),
+]
+
+
+def seed_caracteristicas(db):
+    existentes = {c.codigo for c in db.query(Caracteristica.codigo).all()}
+    nuevas = [
+        Caracteristica(codigo=codigo, nombre=nombre, color_hex=color_hex)
+        for codigo, nombre, color_hex in CARACTERISTICAS
+        if codigo not in existentes
+    ]
+    if nuevas:
+        db.add_all(nuevas)
+        db.commit()
+        print(f"✅ {len(nuevas)} característica(s) nuevas sembradas.")
+    else:
+        print("⚠️ El catálogo de características ya existe en la base de datos.")
+
 
 def seed_data():
     db = SessionLocal()
@@ -38,6 +61,12 @@ def seed_data():
     except IntegrityError:
         db.rollback()
         print("⚠️ Los datos iniciales ya existen en la base de datos.")
+    finally:
+        db.close()
+
+    db = SessionLocal()
+    try:
+        seed_caracteristicas(db)
     finally:
         db.close()
 

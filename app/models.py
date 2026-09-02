@@ -73,3 +73,22 @@ class Edificio(Base):
     piso_max = Column(Integer, nullable=False, default=1)
 
     sede = relationship("Sede", back_populates="edificios")
+
+
+class Sala(Base):
+    __tablename__ = "sala"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
+    edificio_id = Column(UUID(as_uuid=True), ForeignKey("edificio.id", ondelete="CASCADE"), nullable=False)
+    organizacion_id = Column(UUID(as_uuid=True), ForeignKey("organizacion.id", ondelete="CASCADE"), nullable=False)
+    piso = Column(Integer, nullable=False)
+    nombre = Column(String(255), nullable=False)
+
+
+class Caracteristica(Base):
+    __tablename__ = "caracteristica"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
+    codigo = Column(String(100), unique=True, nullable=False)
+    nombre = Column(String(255), nullable=False)
+    color_hex = Column(String(7), nullable=False)

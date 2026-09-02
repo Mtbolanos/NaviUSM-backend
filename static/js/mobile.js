@@ -23,12 +23,13 @@ async function fetchLatestGraph() {
 // ══════════════════════════════════════════════════════════
 // TYPE METADATA — qué tipos de nodo son seleccionables/visibles
 // ══════════════════════════════════════════════════════════
-const VISIBLE_TYPES = ['building', 'entrance', 'baño', 'seguridad'];
+const VISIBLE_TYPES = ['building', 'entrance', 'baño', 'seguridad', 'servicio'];
 const TYPE_LABELS = {
   building: 'Edificio',
   entrance: 'Entrada',
   'baño':   'Baño',
   seguridad:'Seguridad',
+  servicio: 'Servicio U',
   user:     'Tú',
   waypoint: ''
 };
@@ -223,6 +224,19 @@ function selectGraphNode(nodeData) {
   document.getElementById('bcard-ico').textContent  = nodeData.icon || '📍';
   document.getElementById('bcard-name').textContent = nodeData.name;
   document.getElementById('bcard-desc').textContent = '~' + (nodeMarkers[nodeData.id] ? estimateDist(nodeData) : '—') + ' · Toca "Ir" para navegar';
+
+  const horarioEl = document.getElementById('bcard-horario');
+  const descripcionEl = document.getElementById('bcard-descripcion');
+  const linkEl = document.getElementById('bcard-link');
+
+  horarioEl.hidden = !nodeData.horario;
+  if (nodeData.horario) horarioEl.textContent = '🕒 ' + nodeData.horario;
+
+  descripcionEl.hidden = !nodeData.descripcion;
+  if (nodeData.descripcion) descripcionEl.textContent = nodeData.descripcion;
+
+  linkEl.hidden = !nodeData.link_derivacion;
+  if (nodeData.link_derivacion) linkEl.href = nodeData.link_derivacion;
 
   const card = document.getElementById('bcard');
   card.classList.remove('show');

@@ -12,7 +12,7 @@
   <link
     href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap"
     rel="stylesheet">
-  <link rel="stylesheet" href="/naviusm/static/css/admin.css">
+  <link rel="stylesheet" href="/static/css/admin.css?v=0.0.3">
 </head>
 
 <body>
@@ -65,6 +65,8 @@
     <div class="mode-btns">
       <button class="mmode node-mode on" id="btn-add" onclick="setMode('add')">＋ Nodo</button>
       <button class="mmode edge-mode" id="btn-edge" onclick="setMode('edge')">⟵ Arista</button>
+      <button class="mmode" id="btn-zonaseg" onclick="setMode('zonaseg')">▱ Zonas</button>
+      <button class="mmode" id="btn-edificio" onclick="setMode('edificio')">🏛 Edificios</button>
       <button class="mmode delete-mode" id="btn-del" onclick="setMode('delete')">✕ Borrar</button>
     </div>
 
@@ -81,7 +83,7 @@
     <div id="map"></div>
 
     <div class="sidebar">
-      <div class="tab-pane">
+      <div class="tab-pane" id="panel-default">
 
         <div class="sec-hdr">Ubicación Actual</div>
         <div class="field">
@@ -143,11 +145,37 @@
               <div class="nt-lbl">Seguridad</div>
             </div>
           </div>
+          <div class="ntype" data-type="servicio" onclick="setSystemType(this)">
+            <div class="nt-ico">🏥</div>
+            <div>
+              <div class="nt-lbl">Servicio U</div>
+              <div class="nt-sub">Enfermería, Bienestar...</div>
+            </div>
+          </div>
         </div>
 
         <div class="field" style="margin-top: 15px;">
           <label>NOMBRE DEL PUNTO</label>
           <input id="node-name-input" type="text" placeholder="Ej: Sala C-304, Casino...">
+        </div>
+
+        <div id="service-fields" style="display: none;">
+          <div class="field" style="margin-top: 10px;">
+            <label>ÍCONO</label>
+            <input id="node-icon-input" type="text" placeholder="🏥" maxlength="4" style="width: 60px; text-align: center; font-size: 16px;">
+          </div>
+          <div class="field" style="margin-top: 10px;">
+            <label>HORARIO</label>
+            <input id="node-horario-input" type="text" placeholder="Ej: Lun a Vie, 8:30 - 17:00">
+          </div>
+          <div class="field" style="margin-top: 10px;">
+            <label>DESCRIPCIÓN BREVE</label>
+            <textarea id="node-descripcion-input" rows="3" placeholder="Ej: Atención primaria y derivación a urgencias."></textarea>
+          </div>
+          <div class="field" style="margin-top: 10px;">
+            <label>LINK DE DERIVACIÓN</label>
+            <input id="node-link-input" type="url" placeholder="https://...">
+          </div>
         </div>
 
         <div
@@ -157,6 +185,81 @@
             Piso</button>
         </div>
 
+      </div>
+
+      <div class="tab-pane" id="panel-zonaseg" style="display: none;">
+        <div class="sec-hdr">Configurar Zona Segura</div>
+        <div class="field">
+          <label>NOMBRE</label>
+          <input id="zonaseg-name-input" type="text" placeholder="Ej: Patio Central">
+        </div>
+        <div class="field">
+          <label>EDIFICIO ASOCIADO</label>
+          <select id="zonaseg-building-select" class="form-select form-select-sm" style="font-size: 12px; font-weight: 600;">
+            <option value="exterior">Exterior / Campus</option>
+          </select>
+        </div>
+
+        <div style="margin-top: 15px; display: flex; gap: 8px;">
+          <button class="btn-ed btn-ed-ghost" style="flex:1;" onclick="openZonePanel('zonaseg')">Cancelar</button>
+        </div>
+        <button class="btn-ed btn-ed-accent" id="zonaseg-save-btn" disabled style="width: 100%; margin-top: 8px;"
+          onclick="confirmZoneConfig('zonaseg')">Guardar Zona</button>
+
+        <p class="text-muted" style="font-size: 11px; margin-top: 10px;">Color fijo (verde) para todas las zonas seguras.
+          Clickea en el mapa para agregar vértices (mínimo 3), o clickea una zona ya guardada para editar su nombre/edificio.</p>
+      </div>
+
+      <div class="tab-pane" id="panel-edificio" style="display: none;">
+        <div class="sec-hdr">Contorno de Edificio</div>
+        <div class="field">
+          <label>NOMBRE</label>
+          <input id="edificio-name-input" type="text" placeholder="Ej: Edificio A">
+        </div>
+        <div class="field">
+          <label>EDIFICIO ASOCIADO</label>
+          <select id="edificio-building-select" class="form-select form-select-sm" style="font-size: 12px; font-weight: 600;"
+            onchange="refreshEdificioPanel()">
+            <option value="exterior">Exterior / Campus</option>
+          </select>
+        </div>
+
+        <div style="margin-top: 15px; display: flex; gap: 8px;">
+          <button class="btn-ed btn-ed-ghost" style="flex:1;" onclick="openZonePanel('edificio')">Cancelar</button>
+        </div>
+        <button class="btn-ed btn-ed-accent" id="edificio-save-btn" disabled style="width: 100%; margin-top: 8px;"
+          onclick="confirmZoneConfig('edificio')">Guardar Contorno</button>
+
+        <p class="text-muted" style="font-size: 11px; margin-top: 10px;">Color fijo para todos los contornos.
+          Clickea en el mapa para agregar vértices, o clickea un contorno ya guardado para editar su nombre/edificio.</p>
+
+        <div id="edificio-salas-section" style="display: none;">
+          <hr style="border-color: var(--naviusm-border); margin: 14px 0 8px;">
+          <div class="sec-hdr">Pisos y Salas</div>
+
+          <div class="row">
+            <div class="col-6 mb-2">
+              <label class="form-label" style="color: var(--naviusm-muted); font-size: 10px; font-weight: bold;">PISO
+                INFERIOR</label>
+              <input type="number" class="form-control form-control-sm text-center" id="edificio-piso-min">
+            </div>
+            <div class="col-6 mb-2">
+              <label class="form-label" style="color: var(--naviusm-muted); font-size: 10px; font-weight: bold;">PISO
+                SUPERIOR</label>
+              <input type="number" class="form-control form-control-sm text-center" id="edificio-piso-max">
+            </div>
+          </div>
+          <button class="btn-ed btn-ed-ghost" style="width: 100%;" onclick="saveEdificioPisos()">Actualizar Pisos</button>
+
+          <div id="edificio-piso-tabs" style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 12px;"></div>
+
+          <div id="edificio-salas-list" style="margin-top: 10px; display: flex; flex-direction: column; gap: 4px;"></div>
+
+          <div style="display: flex; gap: 6px; margin-top: 10px;">
+            <input id="edificio-sala-name-input" type="text" placeholder="Ej: Sala 201" style="flex:1;">
+            <button class="btn-ed btn-ed-ghost" onclick="addSala()">+ Agregar</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -224,6 +327,7 @@
       </div>
     </div>
   </div>
+
   </div>
 
   <script>
@@ -232,7 +336,7 @@
       sedesInfo: {{ sedes_json | tojson | safe }}
     };
   </script>
-  <script src="/naviusm/static/js/admin.js?v=0.0.7"></script>
+  <script src="/static/js/admin.js?v=0.0.13"></script>
 </body>
 
 </html>

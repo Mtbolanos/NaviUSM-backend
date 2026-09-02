@@ -69,7 +69,7 @@ body { font-family: 'Space Grotesk', sans-serif; background: var(--naviusm-bg); 
 
 .field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 8px; }
 .field label { font-size: 10px; color: var(--naviusm-muted); font-weight: 600; }
-.field input { background: var(--naviusm-bg); border: 1px solid var(--naviusm-border); border-radius: 7px; padding: 8px 10px; font-size: 12px; color: var(--naviusm-text); outline: none; }
+.field input, .field textarea { background: var(--naviusm-bg); border: 1px solid var(--naviusm-border); border-radius: 7px; padding: 8px 10px; font-size: 12px; color: var(--naviusm-text); outline: none; font-family: inherit; resize: vertical; }
 
 /* LEAFLET OVERRIDES */
 .graph-node { border-radius: 50%; border: 3px solid white; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5); font-size: 13px; }
@@ -77,6 +77,21 @@ body { font-family: 'Space Grotesk', sans-serif; background: var(--naviusm-bg); 
 .graph-node.type-user { background: #1e4080; border-color: white; width: 18px !important; height: 18px !important; }
 .graph-node:not(.type-waypoint):not(.type-user) { background: #1a0a2e; border-color: #a78bfa; font-size: 14px; }
 .leaflet-tile { filter: brightness(0.72) contrast(1.05) saturate(0.85) !important; }
+
+.tag-swatch { display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 6px; vertical-align: middle; }
+#zonaseg-save-btn:disabled, #edificio-save-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.zone-vertex { width: 12px; height: 12px; border-radius: 50%; background: #fff; border: 2px solid #333; cursor: grab; box-shadow: 0 1px 4px rgba(0,0,0,0.6); }
+
+.piso-tab { font-size: 11px; padding: 4px 10px; }
+.piso-tab.on { background: var(--naviusm-accent); color: #000; font-weight: bold; }
+.sala-row {
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--naviusm-surface2); border-radius: 6px; padding: 5px 8px; font-size: 12px;
+}
+#edificio-sala-name-input {
+  background: var(--naviusm-bg); border: 1px solid var(--naviusm-border); border-radius: 7px;
+  padding: 8px 10px; font-size: 12px; color: var(--naviusm-text); outline: none;
+}
 
 /* Corrección de colores para selectores y modales oscuros */
 .form-control, .form-select, .sede-select {

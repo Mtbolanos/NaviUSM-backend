@@ -11,7 +11,7 @@
   <link
     href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap"
     rel="stylesheet">
-  <link rel="stylesheet" href="/naviusm/static/css/mobile.css">
+  <link rel="stylesheet" href="/static/css/mobile.css">
 </head>
 
 <body>
@@ -58,12 +58,16 @@
               <div class="fchip" onclick="filterChip(this,'entrance')">🚪 Entradas</div>
               <div class="fchip" onclick="filterChip(this,'baño')">🚽 Baños</div>
               <div class="fchip" onclick="filterChip(this,'seguridad')">👮🏻 Seguridad</div>
+              <div class="fchip" onclick="filterChip(this,'servicio')">🏥 Servicios</div>
             </div>
             <div class="bcard" id="bcard">
               <div class="bcard-ico" id="bcard-ico">🏛️</div>
               <div class="bcard-txt">
                 <h4 id="bcard-name">—</h4>
                 <p id="bcard-desc">—</p>
+                <p id="bcard-horario" hidden></p>
+                <p id="bcard-descripcion" hidden></p>
+                <a id="bcard-link" href="#" target="_blank" rel="noopener" hidden>Pedir hora / más info →</a>
               </div>
               <div class="bcard-actions">
                 <button class="btn-sm btn-route" onclick="routeTo()">Ir →</button>
@@ -105,7 +109,7 @@
       rootPath: "{{ request.scope.get('root_path', '') }}"
     };
   </script>
-  <script src="/naviusm/static/js/mobile.js?v=0.0.1"></script>
+  <script src="/static/js/mobile.js?v=0.0.1"></script>
 </body>
 
 </html>

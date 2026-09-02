@@ -192,6 +192,7 @@ body {
 .bcard-ico { width: 42px; height: 42px; border-radius: 13px; background: var(--navy); display: flex; align-items: center; justify-content: center; font-size: 19px; flex-shrink: 0; }
 .bcard-txt h4 { font-size: 14px; font-weight: 600; color: var(--navy); }
 .bcard-txt p  { font-size: 11px; color: var(--gray); margin-top: 2px; }
+.bcard-txt a  { font-size: 11px; color: var(--navy); font-weight: 600; margin-top: 4px; display: block; }
 .bcard-actions { margin-left: auto; display: flex; gap: 8px; flex-shrink: 0; }
 .btn-sm {
   border: none; border-radius: 10px; padding: 7px 13px;
