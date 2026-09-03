@@ -7,26 +7,24 @@ from app.auth.crud import change_user_password
 from app.database import get_db
 from app.models import Usuario
 from app.security import get_current_user, login_user, set_auth_cookie, verify_password
+from app.config import settings
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 templates.env.cache = None
 
-
 def _root_path(request: Request) -> str:
-    return request.scope.get("root_path", "")
-
+    return request.scope.get("root_path", "").rstrip("/")
 
 @router.get("/")
 async def root(request: Request, db: Session = Depends(get_db)):
     try:
         get_current_user(request, db)
-        return RedirectResponse(f"{_root_path(request)}/admin")
+        return RedirectResponse(url=f"{_root_path(request)}/admin", status_code=303)
     except HTTPException as e:
         if e.status_code == 401:
-            return RedirectResponse(f"{_root_path(request)}/login")
+            return RedirectResponse(url=f"{_root_path(request)}/login", status_code=303)
         raise
-
 
 @router.get("/login")
 def get_login(request: Request):
@@ -42,7 +40,7 @@ def post_login(
 ):
     try:
         user = login_user(db, email, password)
-        redirect = RedirectResponse(f"{_root_path(request)}/admin", status_code=303)
+        redirect = RedirectResponse(url=f"{_root_path(request)}/admin", status_code=303)
         set_auth_cookie(redirect, str(user.id))
         return redirect
     except HTTPException as e:
@@ -52,13 +50,11 @@ def post_login(
             )
         raise
 
-
 @router.get("/logout")
 def logout(request: Request):
-    redirect = RedirectResponse(f"{_root_path(request)}/login", status_code=303)
+    redirect = RedirectResponse(url=f"{_root_path(request)}/login", status_code=303)
     redirect.delete_cookie("session")
     return redirect
-
 
 @router.get("/cambiar-contrasena")
 def get_change_password(
@@ -66,7 +62,6 @@ def get_change_password(
     user: Usuario = Depends(get_current_user),
 ):
     return templates.TemplateResponse(request, "cambiar_contrasena.html", {"user": user})
-
 
 @router.post("/cambiar-contrasena")
 def post_change_password(

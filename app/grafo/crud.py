@@ -99,12 +99,20 @@ def publish_graph_data(db: Session, sede: Sede, payload: dict, org_id) -> int:
         incoming_edges.append(e["id"])
         db.execute(
             text("""
-                INSERT INTO arista (id, origen_id, destino_id, organizacion_id, distancia)
-                VALUES (:id, :origen, :destino, :org, :distancia)
+                INSERT INTO arista (id, origen_id, destino_id, organizacion_id, distancia, es_escalera)
+                VALUES (:id, :origen, :destino, :org, :distancia, :es_escalera)
                 ON CONFLICT (id) DO UPDATE SET
-                    distancia = EXCLUDED.distancia
+                    distancia = EXCLUDED.distancia,
+                    es_escalera = EXCLUDED.es_escalera
             """),
-            {"id": e["id"], "origen": e["from"], "destino": e["to"], "org": org_id, "distancia": e["weight"]},
+            {
+                "id": e["id"], 
+                "origen": e["from"], 
+                "destino": e["to"], 
+                "org": org_id, 
+                "distancia": e["weight"],
+                "es_escalera": e.get("es_escalera", False)
+            },
         )
 
     # 5. Preparar source/target para pgRouting

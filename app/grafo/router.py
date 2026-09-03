@@ -28,12 +28,6 @@ def publish_graph(
     version = publish_graph_data(db, sede, payload, user.organizacion_id)
     return {"message": "Grafo publicado sin pérdida de integridad", "version": version}
 
-
-@router.get("/app-test/{sede_id}")
-def get_mobile_test(request: Request, sede_id: str):
-    return templates.TemplateResponse(request, "mobile.html", {"sede_id": sede_id})
-
-
 @router.get("/api/v1/public/sedes/{sede_id}/snapshot")
 def get_public_snapshot(sede_id: str, db: Session = Depends(get_db)):
     snapshot = get_latest_snapshot(db, sede_id)
