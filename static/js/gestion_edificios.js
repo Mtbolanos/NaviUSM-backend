@@ -57,20 +57,14 @@ function modificarPiso(id, type, val) {
 }
 
 async function eliminarEdificio(id) {
-  let salasCount = 0;
-  try {
-    const res = await fetch(`${ROOT_PATH}/admin/api/edificios/${id}/salas`);
-    if (res.ok) {
-      const salas = await res.json();
-      salasCount = salas.length;
-    }
-  } catch (e) { }
+  const salasCount = graphPayload.nodes.filter(n => n.building === id && n.type !== 'waypoint' && n.type !== 'building').length;
 
-  if (salasCount > 0) {
-    if (!confirm(`ADVERTENCIA: estás a punto de borrar un edificio con ${salasCount} salas. ¿Estás seguro?`)) return;
-  } else {
-    if (!confirm('¿Eliminar este edificio y todos sus nodos asociados? Esta acción borrará información permanentemente.')) return;
-  }
+  const confirmMsg = salasCount > 0
+    ? `ADVERTENCIA: estás a punto de borrar un edificio que contiene ${salasCount} salas/puntos.\n¿Estás seguro?`
+    : `¿Eliminar este edificio y todos sus nodos asociados?\nEsta acción borrará información permanentemente.`;
+
+  const proceed = await window.uiConfirm(confirmMsg, "Eliminar Edificio");
+  if (!proceed) return;
 
   graphPayload.buildings = graphPayload.buildings.filter(b => b.id !== id);
   graphPayload.nodes = graphPayload.nodes.filter(n => n.building !== id);
@@ -84,8 +78,10 @@ async function publicarCambios() {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(graphPayload)
     });
     if (!res.ok) throw new Error();
-    alert("✅ Cambios guardados correctamente.");
-  } catch (e) { alert("❌ Error al guardar."); }
+    await window.uiAlert("Cambios guardados correctamente.", "Éxito");
+  } catch (e) {
+    await window.uiAlert("Error al guardar los cambios.", "Error");
+  }
 }
 
 window.onload = cargarEdificios;

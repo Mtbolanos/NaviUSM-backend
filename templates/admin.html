@@ -45,7 +45,7 @@
   <div class="sidebar">
     <div class="tab-pane" id="panel-default">
       <div class="sec-hdr">Filtro de Visualización</div>
-      <div class="field">
+      <div class="field" id="field-building-filter">
         <label>EDIFICIO / ÁREA</label>
         <select id="building-selector" class="form-select form-select-sm" style="font-size: 12px; font-weight: 600;"
           onchange="changeBuilding()">
@@ -178,5 +178,5 @@
     sedesInfo: {{ sedes_json | tojson | safe }}
     };
 </script>
-<script src="{{ url_for('static', path='js/admin.js') }}?v=0.3.0"></script>
+<script src="{{ url_for('static', path='js/admin.js') }}?v=0.3.4"></script>
 {% endblock %}

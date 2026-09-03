@@ -133,10 +133,12 @@ async function publishToServer() {
   if (!sedeId) return;
 
   const orphaned = nodes.filter(n => n.type === 'waypoint' && !edges.some(e => e.from === n.id || e.to === n.id));
-  if (orphaned.length > 0 && !confirm(`Hay ${orphaned.length} Puntos de Ruta sin conexiones. ¿Publicar de todos modos?`)) return;
+  if (orphaned.length > 0) {
+    const proceed = await window.uiConfirm(`Hay ${orphaned.length} Puntos de Ruta sin conexiones.\n¿Publicar de todos modos?`, "Advertencia");
+    if (!proceed) return;
+  }
 
-  // CÁLCULO DE MÉTRICAS (Diff)
-  const currentNodes = new Set(nodes.map(n => n.id));
+  const currentNodes = new Set(nodes.filter(n => n.type !== 'waypoint' && n.type !== 'building' && n.type !== 'user').map(n => n.id));
   const currentBuildings = new Set(nodes.filter(n => n.type === 'building').map(n => n.id));
 
   let nodosNuevos = 0, nodosEliminados = 0, edificiosNuevos = 0, edificiosEliminados = 0;
@@ -146,15 +148,10 @@ async function publishToServer() {
   currentBuildings.forEach(id => { if (!originalBuildings.has(id)) edificiosNuevos++; });
   originalBuildings.forEach(id => { if (!currentBuildings.has(id)) edificiosEliminados++; });
 
-  const promptMsg = `Has realizado los siguientes cambios:
-- Nodos nuevos: ${nodosNuevos}
-- Nodos eliminados: ${nodosEliminados}
-- Edificios nuevos: ${edificiosNuevos}
-- Edificios eliminados: ${edificiosEliminados}
+  const promptMsg = `Has realizado los siguientes cambios (excluyendo puntos de ruta/aristas):\n- Nodos (POIs) nuevos: ${nodosNuevos}\n- Nodos (POIs) eliminados: ${nodosEliminados}\n- Edificios nuevos: ${edificiosNuevos}\n- Edificios eliminados: ${edificiosEliminados}\n\n¿Estás seguro de publicar el mapa?`;
 
-¿Estás seguro de publicar el mapa?`;
-
-  if (!confirm(promptMsg)) return;
+  const conf = await window.uiConfirm(promptMsg, "Publicar Mapa");
+  if (!conf) return;
 
   setStatus('Publicando...', 'warn');
 
@@ -172,16 +169,23 @@ async function publishToServer() {
   };
 
   try {
-    const res = await fetch(BASE_URL + `/admin/api/sedes/${sedeId}/publish`, /*...*/);
+    const res = await fetch(BASE_URL + `/admin/api/sedes/${sedeId}/publish`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
     if (!res.ok) throw new Error();
     hasUnsavedChanges = false;
 
-    // Actualizar el baseline tras publicar exitosamente
     originalNodes = new Set(currentNodes);
     originalBuildings = new Set(currentBuildings);
 
     setStatus(`✅ Mapa Guardado`, 'ok');
-  } catch (err) { setStatus('❌ Error al publicar', 'err'); }
+    await window.uiAlert("El mapa ha sido publicado exitosamente.", "Éxito");
+  } catch (err) {
+    setStatus('❌ Error al publicar', 'err');
+    await window.uiAlert("Hubo un error al publicar el mapa.", "Error");
+  }
 }
 
 async function loadFromServer() {
@@ -223,6 +227,9 @@ function setMode(m) {
     document.getElementById('edge-creation-properties').style.display = m === 'edge' ? 'block' : 'none';
   }
 
+  const bldFilter = document.getElementById('field-building-filter');
+  if (bldFilter) bldFilter.style.display = m === 'edge' ? 'none' : 'flex';
+
   if (m === 'add') {
     const select = document.getElementById('node-type-select');
     select.value = 'waypoint'; setSystemType(select);
@@ -258,6 +265,9 @@ function onMapClick(e) {
   if (mode === 'zonaseg') { addZoneVertex(e.latlng); return; }
 
   if (mode === 'add') {
+    const isDuplicate = nodes.some(n => n.floor === currentFloor && n.latlng.distanceTo(e.latlng) < 0.5);
+    if (isDuplicate) return;
+
     hasUnsavedChanges = true;
     const rawName = document.getElementById('node-name-input').value.trim();
     const sysType = SYSTEM_TYPES[selNodeType];
@@ -301,13 +311,25 @@ function openEditPopup(type, id, latlng) {
     const n = nodes.find(x => x.id === id);
     const isBld = n.type === 'building';
     const isSrv = n.type !== 'waypoint' && n.type !== 'user';
+
+    const bOptions = nodes.filter(x => x.type === 'building').map(b => `<option value="${b.id}" ${b.id === n.building ? 'selected' : ''}>${b.name}</option>`).join('');
+
     html = `
-      <div class="pop-edit">
-        <h6 style="margin-bottom:10px; font-weight:bold; color:var(--naviusm-text);">Editar ${isBld ? 'Edificio' : 'Nodo'}</h6>
-        <label>Nombre</label>
-        <input type="text" id="pop-name" class="form-control form-control-sm mb-2" value="${n.name}">
-        ${isSrv ? `
-          <label>Icono (Emoji)</label>
+          <div class="pop-edit">
+            <h6 style="margin-bottom:10px; font-weight:bold; color:var(--naviusm-text);">Editar ${isBld ? 'Edificio' : 'Nodo'}</h6>
+            <label>Nombre</label>
+            <input type="text" id="pop-name" class="form-control form-control-sm mb-2" value="${n.name}">
+            
+            ${!isBld ? `
+            <label>Edificio Asignado</label>
+            <select id="pop-building" class="form-select form-select-sm mb-2" style="font-size:12px;">
+              <option value="exterior" ${n.building === 'exterior' ? 'selected' : ''}>Campus (Exterior)</option>
+              ${bOptions}
+            </select>
+            ` : ''}
+
+            ${isSrv ? `
+              <label>Icono (Emoji)</label>
           <input type="text" id="pop-icon" class="form-control form-control-sm mb-2" value="${n.icon || ''}" maxlength="4">
           <label>Horario</label>
           <input type="text" id="pop-horario" class="form-control form-control-sm mb-2" value="${n.horario || ''}">
@@ -357,6 +379,11 @@ function openEditPopup(type, id, latlng) {
 window.saveNodeEdit = function (id) {
   const n = nodes.find(x => x.id === id);
   n.name = document.getElementById('pop-name').value;
+
+  if (n.type !== 'building' && document.getElementById('pop-building')) {
+    n.building = document.getElementById('pop-building').value;
+  }
+
   if (document.getElementById('pop-icon')) {
     n.icon = document.getElementById('pop-icon').value;
     n.el.textContent = n.icon;
@@ -641,9 +668,23 @@ function rebuildLines() {
 }
 
 function loadGraph(data) {
-  originalNodes = new Set((data.nodes || []).map(n => n.id));
-  originalBuildings = new Set((data.buildings || []).map(b => b.id));
-  nodes.forEach(n => n.marker.removeFrom(map)); edges.forEach(e => e.line.removeFrom(map));
+  if (data.nodes) {
+    const uniqueNodes = [];
+    const seenCoords = new Set();
+    data.nodes.forEach(n => {
+      const key = `${n.lat.toFixed(6)},${n.lng.toFixed(6)},${n.floor},${n.type}`;
+      if (!seenCoords.has(key)) {
+        seenCoords.add(key);
+        uniqueNodes.push(n);
+      }
+    });
+    data.nodes = uniqueNodes;
+  }
+
+  originalNodes = new Set((data.nodes || []).filter(n => n.type !== 'waypoint' && n.type !== 'building' && n.type !== 'user').map(n => n.id));
+  originalBuildings = new Set((data.buildings || []).filter(b => b.id !== 'exterior').map(b => b.id));
+
+  nodes.forEach(n => n.marker.removeFrom(map));
   zones.forEach(z => z.polygon && z.polygon.removeFrom(map));
   nodes = []; edges = []; zones = [];
   if (!data.nodes || !data.edges) return;
@@ -668,7 +709,9 @@ function loadGraph(data) {
 
   if (data.buildings && data.buildings.length > 0) buildings = data.buildings;
   else buildings = [{ id: 'exterior', name: 'Campus (Exterior)', min: 1, max: 1 }];
-  currentBuilding = buildings[0].id; updateFloorSelector();
+
+  currentBuilding = 'exterior';
+  updateFloorSelector();
 
   data.nodes.forEach(n => {
     if (n.type === 'building') {
@@ -706,22 +749,16 @@ function setStatus(msg, state) {
 }
 
 async function attemptDeleteBuilding(nodeId, zoneObj = null) {
-  let salasCount = 0;
-  try {
-    const res = await fetch(BASE_URL + `/admin/api/edificios/${nodeId}/salas`);
-    if (res.ok) {
-      const salas = await res.json();
-      salasCount = salas.length;
-    }
-  } catch (e) {
-    console.warn("No se pudo obtener salas, posiblemente el edificio no está publicado aún.");
-  }
+  const childNodes = nodes.filter(n => n.building === nodeId);
+  // Contar estrictamente POIs asociados (entradas, baños, etc.)
+  const salasCount = childNodes.filter(n => n.type !== 'waypoint' && n.type !== 'building' && n.type !== 'user').length;
 
-  if (salasCount > 0) {
-    if (!confirm(`ADVERTENCIA: estás a punto de borrar un edificio con ${salasCount} salas. ¿Estás seguro?`)) return;
-  } else {
-    if (!confirm(`¿Eliminar este edificio y su contorno asociado?`)) return;
-  }
+  const confirmMsg = salasCount > 0
+    ? `ADVERTENCIA: estás a punto de borrar un edificio con ${salasCount} salas/puntos.\n¿Estás seguro?`
+    : `¿Eliminar este edificio y su contorno asociado?`;
+
+  const proceed = await window.uiConfirm(confirmMsg, "Eliminar Edificio");
+  if (!proceed) return;
 
   if (zoneObj) {
     executeZoneDeletion(zoneObj);
@@ -729,6 +766,9 @@ async function attemptDeleteBuilding(nodeId, zoneObj = null) {
     const z = zones.find(z => z.building === nodeId);
     if (z) executeZoneDeletion(z);
   }
+
+  childNodes.forEach(child => executeNodeDeletion(child.id));
+
   executeNodeDeletion(nodeId);
 }
 
@@ -740,6 +780,7 @@ function executeZoneDeletion(zone) {
 
 function executeNodeDeletion(id) {
   const n = nodes.find(x => x.id === id);
+  if (!n) return;
   n.marker.removeFrom(map);
   edges.filter(e => e.from === id || e.to === id).forEach(e => e.line.removeFrom(map));
   edges = edges.filter(e => e.from !== id && e.to !== id);
