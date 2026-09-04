@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NaviUSM — Admin & Editor</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', path='css/admin.css') }}?v=0.0.5">
+</head>
+
+<body>
+
+  <nav class="navbar navbar-expand navbar-dark navbar-custom px-3">
+    <a class="navbar-brand" href="{{ request.scope.get('root_path', '') }}/admin">NaviUSM <sub>Studio</sub></a>
+    <div class="ms-auto d-flex align-items-center">
+      <div class="dropdown">
+        <a class="nav-link dropdown-toggle d-flex align-items-center gap-2" href="#" role="button"
+          data-bs-toggle="dropdown" aria-expanded="false">
+          <div
+            style="width: 28px; height: 28px; background: var(--naviusm-accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #000; font-weight: bold; font-size: 12px;">
+            {{ user.email[0].upper() }}
+          </div>
+          <span class="d-none d-md-inline" style="font-size: 13px;">{{ user.email }}</span>
+        </a>
+        <ul class="dropdown-menu dropdown-menu-end shadow">
+          <li>
+            <h6 class="dropdown-header">Rol: {{ user.rol.capitalize() }}</h6>
+          </li>
+          <li>
+            <hr class="dropdown-divider">
+          </li>
+          <li><a class="dropdown-item" href="{{ request.scope.get('root_path', '') }}/cambiar-contrasena">Cambiar
+              Contraseña</a></li>
+          <li><a class="dropdown-item text-danger" href="{{ request.scope.get('root_path', '') }}/logout">Cerrar
+              Sesión</a></li>
+        </ul>
+      </div>
+    </div>
+  </nav>
+
+  <div class="topbar">
+    <select id="sede-selector" class="sede-select" onchange="loadFromServer()">
+      {% if not sedes %}
+      <option value="">Sin sedes disponibles</option>
+      {% else %}
+      {% for sede in sedes %}
+      <option value="{{ sede.id }}">{{ sede.nombre }}</option>
+      {% endfor %}
+      {% endif %}
+    </select>
+
+    <button class="btn-ed btn-ed-ghost" style="padding: 4px 8px;" data-bs-toggle="modal"
+      data-bs-target="#newSedeModal">➕</button>
+    <button class="btn-ed btn-ed-danger" style="padding: 4px 8px;" onclick="deleteCurrentSede()">🗑️</button>
+
+    <div class="sep"></div>
+
+    <div class="mode-btns">
+      <button class="mmode node-mode on" id="btn-add" onclick="setMode('add')">＋ Nodo</button>
+      <button class="mmode edge-mode" id="btn-edge" onclick="setMode('edge')">⟵ Arista</button>
+      <button class="mmode" id="btn-zonaseg" onclick="setMode('zonaseg')">▱ Zonas</button>
+      <button class="mmode" id="btn-edificio" onclick="setMode('edificio')">🏛 Edificios</button>
+      <button class="mmode delete-mode" id="btn-del" onclick="setMode('delete')">✕ Borrar</button>
+    </div>
+
+    <div class="sep"></div>
+    <button class="btn-ed btn-ed-accent" onclick="publishToServer()">Publicar Cambios</button>
+
+    <div class="status-pill">
+      <div class="s-dot" id="sdot"></div>
+      <span id="status-txt">Listo</span>
+    </div>
+  </div>
+
+  <div class="main">
+    <div id="map"></div>
+
+    <div class="sidebar">
+      <div class="tab-pane" id="panel-default">
+
+        <div class="sec-hdr">Ubicación Actual</div>
+        <div class="field">
+          <label>EDIFICIO / ÁREA</label>
+          <div class="d-flex gap-2">
+            <select id="building-selector" class="form-select form-select-sm" style="font-size: 12px; font-weight: 600;"
+              onchange="changeBuilding()">
+              <option value="exterior">Campus (Exterior)</option>
+            </select>
+            <button id="btn-config-pisos" class="btn-ed btn-ed-ghost px-2" style="display: none;" data-bs-toggle="modal"
+              data-bs-target="#floorConfigModal" onclick="openFloorConfig()" title="Configurar niveles">📐</button>
+          </div>
+        </div>
+        <div class="field">
+          <label>NIVEL / PISO</label>
+          <select id="floor-selector" class="form-select form-select-sm" style="font-size: 12px; font-weight: 600;"
+            onchange="changeFloor()">
+            <option value="1">Planta Baja (1)</option>
+          </select>
+        </div>
+
+        <hr style="border-color: var(--naviusm-border); margin: 8px 0;">
+
+        <div class="sec-hdr">Nodos del Sistema</div>
+        <div class="node-types">
+          <div class="ntype on" data-type="waypoint" onclick="setSystemType(this)">
+            <div class="nt-ico">🔵</div>
+            <div>
+              <div class="nt-lbl">Punto Ruta</div>
+              <div class="nt-sub">Invisible en App</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="sec-hdr" style="margin-top: 10px;">Puntos de Interés (Visibles)</div>
+        <div class="node-types">
+          <div class="ntype" data-type="building" onclick="setSystemType(this)">
+            <div class="nt-ico">🏛️</div>
+            <div>
+              <div class="nt-lbl">Edificio</div>
+              <div class="nt-sub">Destino principal</div>
+            </div>
+          </div>
+          <div class="ntype" data-type="entrance" onclick="setSystemType(this)">
+            <div class="nt-ico">🚪</div>
+            <div>
+              <div class="nt-lbl">Entrada/Sala</div>
+            </div>
+          </div>
+          <div class="ntype" data-type="baño" onclick="setSystemType(this)">
+            <div class="nt-ico">🚽</div>
+            <div>
+              <div class="nt-lbl">Baño</div>
+            </div>
+          </div>
+          <div class="ntype" data-type="seguridad" onclick="setSystemType(this)">
+            <div class="nt-ico">👮🏻</div>
+            <div>
+              <div class="nt-lbl">Seguridad</div>
+            </div>
+          </div>
+          <div class="ntype" data-type="servicio" onclick="setSystemType(this)">
+            <div class="nt-ico">🏥</div>
+            <div>
+              <div class="nt-lbl">Servicio U</div>
+              <div class="nt-sub">Enfermería, Bienestar...</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="field" style="margin-top: 15px;">
+          <label>NOMBRE DEL PUNTO</label>
+          <input id="node-name-input" type="text" placeholder="Ej: Sala C-304, Casino...">
+        </div>
+
+        <div id="service-fields" style="display: none;">
+          <div class="field" style="margin-top: 10px;">
+            <label>ÍCONO</label>
+            <input id="node-icon-input" type="text" placeholder="🏥" maxlength="4" style="width: 60px; text-align: center; font-size: 16px;">
+          </div>
+          <div class="field" style="margin-top: 10px;">
+            <label>HORARIO</label>
+            <input id="node-horario-input" type="text" placeholder="Ej: Lun a Vie, 8:30 - 17:00">
+          </div>
+          <div class="field" style="margin-top: 10px;">
+            <label>DESCRIPCIÓN BREVE</label>
+            <textarea id="node-descripcion-input" rows="3" placeholder="Ej: Atención primaria y derivación a urgencias."></textarea>
+          </div>
+          <div class="field" style="margin-top: 10px;">
+            <label>LINK DE DERIVACIÓN</label>
+            <input id="node-link-input" type="url" placeholder="https://...">
+          </div>
+        </div>
+
+        <div
+          style="display: flex; justify-content: space-between; align-items: center; margin-top: auto; padding-top: 20px; border-top: 1px solid var(--naviusm-border);">
+          <span style="font-size:11px; color:var(--naviusm-muted);">Total Nodos: <strong id="st-nodes">0</strong></span>
+          <button class="btn-ed btn-ed-danger" style="padding: 4px 10px; font-size:10px;" onclick="clearAll()">Vaciar
+            Piso</button>
+        </div>
+
+      </div>
+
+      <div class="tab-pane" id="panel-zonaseg" style="display: none;">
+        <div class="sec-hdr">Configurar Zona Segura</div>
+        <div class="field">
+          <label>NOMBRE</label>
+          <input id="zonaseg-name-input" type="text" placeholder="Ej: Patio Central">
+        </div>
+        <div class="field">
+          <label>EDIFICIO ASOCIADO</label>
+          <select id="zonaseg-building-select" class="form-select form-select-sm" style="font-size: 12px; font-weight: 600;">
+            <option value="exterior">Exterior / Campus</option>
+          </select>
+        </div>
+
+        <div style="margin-top: 15px; display: flex; gap: 8px;">
+          <button class="btn-ed btn-ed-ghost" style="flex:1;" onclick="openZonePanel('zonaseg')">Cancelar</button>
+        </div>
+        <button class="btn-ed btn-ed-accent" id="zonaseg-save-btn" disabled style="width: 100%; margin-top: 8px;"
+          onclick="confirmZoneConfig('zonaseg')">Guardar Zona</button>
+
+        <p class="text-muted" style="font-size: 11px; margin-top: 10px;">Color fijo (verde) para todas las zonas seguras.
+          Clickea en el mapa para agregar vértices (mínimo 3), o clickea una zona ya guardada para editar su nombre/edificio.</p>
+      </div>
+
+      <div class="tab-pane" id="panel-edificio" style="display: none;">
+        <div class="sec-hdr">Contorno de Edificio</div>
+        <div class="field">
+          <label>NOMBRE</label>
+          <input id="edificio-name-input" type="text" placeholder="Ej: Edificio A">
+        </div>
+        <div class="field">
+          <label>EDIFICIO ASOCIADO</label>
+          <select id="edificio-building-select" class="form-select form-select-sm" style="font-size: 12px; font-weight: 600;"
+            onchange="refreshEdificioPanel()">
+            <option value="exterior">Exterior / Campus</option>
+          </select>
+        </div>
+
+        <div style="margin-top: 15px; display: flex; gap: 8px;">
+          <button class="btn-ed btn-ed-ghost" style="flex:1;" onclick="openZonePanel('edificio')">Cancelar</button>
+        </div>
+        <button class="btn-ed btn-ed-accent" id="edificio-save-btn" disabled style="width: 100%; margin-top: 8px;"
+          onclick="confirmZoneConfig('edificio')">Guardar Contorno</button>
+
+        <p class="text-muted" style="font-size: 11px; margin-top: 10px;">Color fijo para todos los contornos.
+          Clickea en el mapa para agregar vértices, o clickea un contorno ya guardado para editar su nombre/edificio.</p>
+
+        <div id="edificio-salas-section" style="display: none;">
+          <hr style="border-color: var(--naviusm-border); margin: 14px 0 8px;">
+          <div class="sec-hdr">Pisos y Salas</div>
+
+          <div class="row">
+            <div class="col-6 mb-2">
+              <label class="form-label" style="color: var(--naviusm-muted); font-size: 10px; font-weight: bold;">PISO
+                INFERIOR</label>
+              <input type="number" class="form-control form-control-sm text-center" id="edificio-piso-min">
+            </div>
+            <div class="col-6 mb-2">
+              <label class="form-label" style="color: var(--naviusm-muted); font-size: 10px; font-weight: bold;">PISO
+                SUPERIOR</label>
+              <input type="number" class="form-control form-control-sm text-center" id="edificio-piso-max">
+            </div>
+          </div>
+          <button class="btn-ed btn-ed-ghost" style="width: 100%;" onclick="saveEdificioPisos()">Actualizar Pisos</button>
+
+          <div id="edificio-piso-tabs" style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 12px;"></div>
+
+          <div id="edificio-salas-list" style="margin-top: 10px; display: flex; flex-direction: column; gap: 4px;"></div>
+
+          <div style="display: flex; gap: 6px; margin-top: 10px;">
+            <input id="edificio-sala-name-input" type="text" placeholder="Ej: Sala 201" style="flex:1;">
+            <button class="btn-ed btn-ed-ghost" onclick="addSala()">+ Agregar</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="newSedeModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title fw-bold" style="font-size: 16px;">Crear Nueva Sede</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label small fw-bold">Nombre del Campus</label>
+            <input type="text" class="form-control" id="ns-nombre" placeholder="Ej: Sede San Joaquín">
+          </div>
+          <div class="row">
+            <div class="col-6 mb-3">
+              <label class="form-label small fw-bold">Latitud Inicial</label>
+              <input type="number" step="any" class="form-control" id="ns-lat" placeholder="-33.456">
+            </div>
+            <div class="col-6 mb-3">
+              <label class="form-label small fw-bold">Longitud Inicial</label>
+              <input type="number" step="any" class="form-control" id="ns-lng" placeholder="-70.654">
+            </div>
+          </div>
+          <div class="text-muted" style="font-size: 11px;">* Deja las coordenadas en blanco para usar tu ubicación
+            actual en el mapa.</div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+          <button type="button" class="btn btn-primary btn-sm"
+            style="background:var(--naviusm-accent); color:black; border:none; font-weight:bold;"
+            onclick="submitNuevaSede()">Crear Sede</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="floorConfigModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+      <div class="modal-content">
+        <div class="modal-header py-2">
+          <h5 class="modal-title fw-bold" style="font-size: 14px;">Configurar Niveles</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted small mb-3 fw-bold" style="color: var(--naviusm-accent) !important;" id="fc-bld-name">
+            Edificio</p>
+          <div class="row">
+            <div class="col-6 mb-3">
+              <label class="form-label" style="color: var(--naviusm-muted); font-size: 10px; font-weight: bold;">PISO
+                INFERIOR</label>
+              <input type="number" class="form-control form-control-sm text-center" id="fc-min" value="1">
+            </div>
+            <div class="col-6 mb-3">
+              <label class="form-label" style="color: var(--naviusm-muted); font-size: 10px; font-weight: bold;">PISO
+                SUPERIOR</label>
+              <input type="number" class="form-control form-control-sm text-center" id="fc-max" value="4">
+            </div>
+          </div>
+        </div>
+        <button type="button" class="btn btn-sm w-100 fw-bold" style="background: var(--naviusm-accent); color: #000;"
+          onclick="saveFloorConfig()">Guardar Configuración</button>
+      </div>
+    </div>
+  </div>
+
+  </div>
+
+  <script>
+    window.APP_CONFIG = {
+      rootPath: "{{ request.scope.get('root_path', '') }}",
+      sedesInfo: {{ sedes_json | tojson | safe }}
+    };
+  </script>
+  <script src="{{ url_for('static', path='js/admin.js') }}?v=0.0.15"></script>
+</body>
+
+</html>

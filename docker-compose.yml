@@ -1,0 +1,36 @@
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: naviusm
+      POSTGRES_PASSWORD: naviusm123
+      POSTGRES_DB: naviusm
+    volumes:
+      - naviusm-db-data:/var/lib/postgresql/data
+      - ./schema_actualizado.sql:/schema/schema_actualizado.sql:ro
+      - ./docker/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U naviusm -d naviusm"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: .
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--proxy-headers", "--forwarded-allow-ips=*"]
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://naviusm:naviusm123@db:5432/naviusm
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./app:/app/app
+      - ./static:/app/static
+      - ./templates:/app/templates
+    ports:
+      - "8000:8000"
+
+volumes:
+  naviusm-db-data:
