@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}<title>Gestión de Sedes - NaviUSM Studio</title>{% endblock %}
+{% block content %}
+
+<div class="container mt-5">
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <h3 style="color: var(--naviusm-text); font-weight: 700;">Sedes Administradas</h3>
+    <button class="btn-ed btn-ed-accent" data-bs-toggle="modal" data-bs-target="#newSedeModal">➕ Agregar Sede</button>
+  </div>
+
+  <div class="row">
+    {% for sede in sedes %}
+    <div class="col-md-4 mb-3">
+      <div class="card" style="background: var(--naviusm-surface2); border: 1px solid var(--naviusm-border);">
+        <div class="card-body">
+          <h5 class="card-title" style="color: var(--naviusm-text); font-weight: 600;">{{ sede.nombre }}</h5>
+          <p class="text-muted" style="font-size: 12px;">Lat: {{ sede.latitud }} | Lng: {{ sede.longitud }}</p>
+          <button class="btn-ed btn-ed-danger w-100 mt-2"
+            onclick="if(confirm('¿Eliminar sede {{ sede.nombre }}?')) fetch('{{ request.scope.get('root_path', '') }}/admin/api/sedes/{{ sede.id }}', {method: 'DELETE'}).then(()=>location.reload())">Eliminar
+            Sede</button>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- Reutilizamos el modal de Sede que sacaste del admin.html -->
+<div class="modal fade" id="newSedeModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title fw-bold" style="font-size: 16px;">Crear Nueva Sede</h5>
+      </div>
+      <div class="modal-body">
+        <!-- TODO: Aquí podemos inyectar un mini Leaflet map para sacar lat/lng visualmente -->
+        <div class="mb-3"><label class="form-label small fw-bold">Nombre del Campus</label><input type="text"
+            class="form-control" id="ns-nombre"></div>
+        <div class="row">
+          <div class="col-6 mb-3"><label class="form-label small fw-bold">Latitud Inicial</label><input type="number"
+              step="any" class="form-control" id="ns-lat"></div>
+          <div class="col-6 mb-3"><label class="form-label small fw-bold">Longitud Inicial</label><input type="number"
+              step="any" class="form-control" id="ns-lng"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary btn-sm"
+          style="background:var(--naviusm-accent); color:black; border:none; font-weight:bold;"
+          onclick="submitNuevaSede()">Crear Sede</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+  window.SEDES_CONFIG = {
+    rootPath: "{{ request.scope.get('root_path', '') }}"
+  };
+</script>
+<script src="{{ url_for('static', path='js/gestion_sedes.js') }}?v=0.3.1"></script>
+{% endblock %}

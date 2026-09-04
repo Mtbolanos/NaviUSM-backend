@@ -162,5 +162,20 @@ def publish_graph_data(db: Session, sede: Sede, payload: dict, org_id) -> int:
     # 7. UPSERT de Zonas (contornos de edificio, zonas seguras/silenciosas/accesibles)
     upsert_zonas(db, sede, payload.get("zonas", []), org_id)
 
+    # 8. Limpiar Snapshots antiguos (Mantener solo las 2 versiones más recientes)
+    db.execute(
+        text("""
+            DELETE FROM snapshot 
+            WHERE id IN (
+                SELECT id FROM (
+                    SELECT id, row_number() OVER (PARTITION BY sede_id ORDER BY version DESC) as rn
+                    FROM snapshot
+                    WHERE sede_id = :sede
+                ) t WHERE rn > 2
+            )
+        """),
+        {"sede": sede.id}
+    )
+
     db.commit()
     return new_version
