@@ -25,29 +25,42 @@
   </div>
 </div>
 
-<!-- Reutilizamos el modal de Sede que sacaste del admin.html -->
 <div class="modal fade" id="newSedeModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered">
+  <div class="modal-dialog modal-dialog-centered modal-lg"> <!-- Modal ampliado a lg -->
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title fw-bold" style="font-size: 16px;">Crear Nueva Sede</h5>
       </div>
-      <div class="modal-body">
-        <!-- TODO: Aquí podemos inyectar un mini Leaflet map para sacar lat/lng visualmente -->
-        <div class="mb-3"><label class="form-label small fw-bold">Nombre del Campus</label><input type="text"
-            class="form-control" id="ns-nombre"></div>
-        <div class="row">
-          <div class="col-6 mb-3"><label class="form-label small fw-bold">Latitud Inicial</label><input type="number"
-              step="any" class="form-control" id="ns-lat"></div>
-          <div class="col-6 mb-3"><label class="form-label small fw-bold">Longitud Inicial</label><input type="number"
-              step="any" class="form-control" id="ns-lng"></div>
+      <div class="modal-body p-0">
+        <!-- Contenedor del Mapa y Buscador -->
+        <div style="position: relative;">
+          <div style="position: absolute; top: 10px; left: 50px; right: 10px; z-index: 1000; display:flex; gap: 5px;">
+            <input type="text" id="ns-search" class="form-control form-control-sm"
+              placeholder="Buscar dirección, universidad o lugar..."
+              onkeydown="if(event.key==='Enter') searchLocation()">
+            <button class="btn btn-sm btn-primary" onclick="searchLocation()"
+              style="background:var(--naviusm-accent); color:black; border:none; font-weight:bold;">Buscar</button>
+          </div>
+          <div id="ns-map" style="height: 380px; width: 100%; background: #0c1520;"></div>
+        </div>
+
+        <div class="p-3 pb-2">
+          <label class="form-label small fw-bold">Nombre del Campus</label>
+          <input type="text" class="form-control" id="ns-nombre" placeholder="Ej: Sede Concepción">
         </div>
       </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
-        <button type="button" class="btn btn-primary btn-sm"
-          style="background:var(--naviusm-accent); color:black; border:none; font-weight:bold;"
-          onclick="submitNuevaSede()">Crear Sede</button>
+      <div class="modal-footer d-flex justify-content-between align-items-center">
+        <!-- Display de Coordenadas en la izquierda -->
+        <div style="font-size: 12px; color: var(--naviusm-muted); font-weight: bold; font-family: var(--naviusm-mono);">
+          📍 <span id="ns-lat-disp">-33.036577</span>, <span id="ns-lng-disp">-71.486578</span>
+        </div>
+        <!-- Botones a la derecha -->
+        <div>
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+          <button type="button" class="btn btn-primary btn-sm ms-2"
+            style="background:var(--naviusm-accent); color:black; border:none; font-weight:bold;"
+            onclick="submitNuevaSede()">Crear Sede</button>
+        </div>
       </div>
     </div>
   </div>
@@ -59,5 +72,5 @@
     rootPath: "{{ request.scope.get('root_path', '') }}"
   };
 </script>
-<script src="{{ url_for('static', path='js/gestion_sedes.js') }}?v=0.3.1"></script>
+<script src="{{ url_for('static', path='js/gestion_sedes.js') }}?v=0.3.2"></script>
 {% endblock %}

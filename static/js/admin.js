@@ -192,9 +192,16 @@ async function loadFromServer() {
   const sedeId = document.getElementById('sede-selector')?.value;
   if (!sedeId) return;
   setStatus('Cargando...', 'warn');
+  
+  centrarMapaEnSede();
+
   try {
     const res = await fetch(BASE_URL + `/api/v1/public/sedes/${sedeId}/snapshot`);
-    if (res.status === 404) { clearAll(true); setStatus('Mapa nuevo', 'ok'); return; }
+    if (res.status === 404) { 
+      hardClearMap(); 
+      setStatus('Mapa nuevo', 'ok'); 
+      return; 
+    }
     if (!res.ok) throw new Error();
     const data = await res.json();
     loadGraph(data);
@@ -788,4 +795,19 @@ function executeNodeDeletion(id) {
   if (n.type === 'building') updateBuildingSelector();
   hasUnsavedChanges = true;
   renderMapNodes();
+}
+
+function hardClearMap() {
+  nodes.forEach(n => n.marker.removeFrom(map));
+  edges.forEach(e => e.line.removeFrom(map));
+  zones.forEach(z => z.polygon && z.polygon.removeFrom(map));
+  if (drawingZonePreviewLayer) { drawingZonePreviewLayer.removeFrom(map); drawingZonePreviewLayer = null; }
+  drawingZoneVertexLayers.forEach(m => m.removeFrom(map));
+  drawingZoneVertexLayers = [];
+  
+  nodes = []; edges = []; zones = [];
+  originalNodes = new Set();
+  originalBuildings = new Set();
+  currentBuilding = 'exterior';
+  updateBuildingSelector();
 }
