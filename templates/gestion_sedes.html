@@ -16,8 +16,7 @@
           <h5 class="card-title" style="color: var(--naviusm-text); font-weight: 600;">{{ sede.nombre }}</h5>
           <p class="text-muted" style="font-size: 12px;">Lat: {{ sede.latitud }} | Lng: {{ sede.longitud }}</p>
           <button class="btn-ed btn-ed-danger w-100 mt-2"
-            onclick="if(confirm('¿Eliminar sede {{ sede.nombre }}?')) fetch('{{ request.scope.get('root_path', '') }}/admin/api/sedes/{{ sede.id }}', {method: 'DELETE'}).then(()=>location.reload())">Eliminar
-            Sede</button>
+            onclick="eliminarSede('{{ sede.id }}', '{{ sede.nombre }}')">Eliminar Sede</button>
         </div>
       </div>
     </div>
@@ -34,12 +33,17 @@
       <div class="modal-body p-0">
         <!-- Contenedor del Mapa y Buscador -->
         <div style="position: relative;">
-          <div style="position: absolute; top: 10px; left: 50px; right: 10px; z-index: 1000; display:flex; gap: 5px;">
-            <input type="text" id="ns-search" class="form-control form-control-sm"
-              placeholder="Buscar dirección, universidad o lugar..."
-              onkeydown="if(event.key==='Enter') searchLocation()">
-            <button class="btn btn-sm btn-primary" onclick="searchLocation()"
-              style="background:var(--naviusm-accent); color:black; border:none; font-weight:bold;">Buscar</button>
+          <div style="position: absolute; top: 10px; left: 50px; right: 10px; z-index: 1000;">
+            <div class="d-flex gap-2">
+              <input type="text" id="ns-search" class="form-control form-control-sm shadow-sm"
+                placeholder="Buscar dirección, universidad o lugar..."
+                onkeydown="if(event.key==='Enter') searchLocation()">
+              <button class="btn btn-sm btn-primary shadow-sm" onclick="searchLocation()"
+                style="background:var(--naviusm-accent); color:black; border:none; font-weight:bold;">Buscar</button>
+            </div>
+            <!-- Div de resultados de búsqueda -->
+            <div id="ns-search-results" class="list-group shadow mt-1"
+              style="display: none; max-height: 200px; overflow-y: auto;"></div>
           </div>
           <div id="ns-map" style="height: 380px; width: 100%; background: #0c1520;"></div>
         </div>
@@ -72,5 +76,5 @@
     rootPath: "{{ request.scope.get('root_path', '') }}"
   };
 </script>
-<script src="{{ url_for('static', path='js/gestion_sedes.js') }}?v=0.3.2"></script>
+<script src="{{ url_for('static', path='js/gestion_sedes.js') }}?v=0.3.3"></script>
 {% endblock %}
