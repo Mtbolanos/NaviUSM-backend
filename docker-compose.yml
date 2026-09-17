@@ -1,6 +1,7 @@
 services:
   db:
     image: postgis/postgis:16-3.4
+    restart: unless-stopped
     environment:
       POSTGRES_USER: naviusm
       POSTGRES_PASSWORD: naviusm123
@@ -17,6 +18,7 @@ services:
 
   backend:
     build: .
+    restart: unless-stopped
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--proxy-headers", "--forwarded-allow-ips=*"]
     env_file:
       - .env

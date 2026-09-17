@@ -14,7 +14,7 @@ async function cargarEdificios() {
     graphPayload = await res.json();
     renderTabla();
   } catch (e) {
-    document.getElementById('bld-table-body').innerHTML = '<tr><td colspan="3" class="text-center text-danger">Aún no hay un mapa publicado. Ve a "Dibujar Mapa" primero.</td></tr>';
+    document.getElementById('bld-table-body').innerHTML = '<tr><td colspan="3" class="text-center text-danger">Aún no hay un mapa publicado para esta sede. Ve a "Dibujar Mapa" primero.</td></tr>';
   }
 }
 
@@ -82,6 +82,12 @@ async function publicarCambios() {
   } catch (e) {
     await window.uiAlert("Error al guardar los cambios.", "Error");
   }
+}
+
+function cambiarSede() {
+  sedeId = document.getElementById('sede-selector').value;
+  document.getElementById('bld-table-body').innerHTML = '<tr><td colspan="3" class="text-center text-muted py-4">Cargando datos...</td></tr>';
+  cargarEdificios();
 }
 
 window.onload = cargarEdificios;
