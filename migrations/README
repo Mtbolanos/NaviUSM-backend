@@ -1,0 +1,4 @@
+Migraciones de esquema con Alembic.
+
+La documentacion esta en docs/MIGRACIONES.md: uso diario, como escribir una migracion,
+el historial de revisiones, y por que --autogenerate esta deshabilitado en este proyecto.

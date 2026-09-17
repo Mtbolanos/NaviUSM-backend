@@ -28,7 +28,19 @@ docker compose up --build -d
 
 Esto levanta Postgres+PostGIS y el backend, y aplica automáticamente todo el schema (`schema_actualizado.sql`) porque el volumen de datos es nuevo.
 
-## 4. Poblar datos de prueba
+## 4. Poner el esquema al día
+
+```bash
+docker compose exec backend alembic upgrade head
+```
+
+En un clone limpio el paso anterior ya dejó el esquema completo, así que esto no cambia nada —
+pero deja la base registrada en la última revisión, que es lo que permite que los cambios de
+esquema siguientes se apliquen solos. Es idempotente: correrlo de más no hace daño.
+
+Detalle en `docs/MIGRACIONES.md`.
+
+## 5. Poblar datos de prueba
 
 ```bash
 docker compose exec backend python seed.py
@@ -36,7 +48,7 @@ docker compose exec backend python seed.py
 
 Crea una organización, un usuario admin y una sede de prueba, más el catálogo de características de zonas (zona segura, zona silenciosa, etc). Solo hace falta correrlo una vez — si ya existen esos datos, el script lo detecta y no duplica nada.
 
-## 5. Entrar
+## 6. Entrar
 
 Abrir `http://localhost:8000/admin` — login con `admin@usm.cl` / `admin123`.
 
@@ -49,16 +61,22 @@ Abrir `http://localhost:8000/admin` — login con `admin@usm.cl` / `admin123`.
 
 ## Si alguien ya tiene una base con datos reales de antes (no un clone limpio)
 
-No corran `schema_actualizado.sql` completo de nuevo — usen el script incremental que no borra nada:
+No corran `schema_actualizado.sql` completo de nuevo. Pongan la base al día con las migraciones,
+que no borran nada:
 
 ```bash
-psql -U <usuario> -d <base> -f migracion_zonas_salas.sql
+./venv/bin/alembic upgrade head
 ```
+
+Funciona sobre una base que quedó en el esquema viejo: le crea las tablas que le falten y deja
+intactos los datos existentes. Reemplaza al `psql -f migracion_zonas_salas.sql` de antes (ese
+archivo se conserva solo como referencia histórica).
 
 Ver también `docker/README.md` para más detalle sobre el setup de Docker.
 
 ## Más documentación
 
+- `docs/MIGRACIONES.md` — cómo versionar cambios de esquema con Alembic, y por qué `--autogenerate` está deshabilitado.
 - `docs/CHANGELOG.md` — resumen de todo el trabajo de la sesión que agregó Zonas/Salas/Docker, agrupado por tema.
 - `docs/CAMBIOS-JSON-SNAPSHOT.md` — cómo cambió la forma del JSON público (nueva key `zonas`, campos nuevos en nodos tipo `servicio`).
 - `docs/MAPEO-REESTRUCTURACION.md` — mapa de qué archivo plano (de `origin/develop`) quedó dónde dentro del paquete `app/`, útil para reconciliar ambas ramas.
