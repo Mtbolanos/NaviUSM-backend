@@ -1,7 +1,8 @@
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import RedirectResponse, FileResponse
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import RedirectResponse, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.exception_handlers import http_exception_handler
 
@@ -26,6 +27,36 @@ class ForwardedPrefixMiddleware:
         await self.app(scope, receive, send)
 
 app.add_middleware(ForwardedPrefixMiddleware)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(request: Request, exc: RequestValidationError):
+    """422 sin el eco del payload.
+
+    Las reglas que miran el payload completo (las de PublishPayloadIn) fallan a
+    nivel del modelo, y pydantic adjunta en `input` el objeto que valido: el
+    grafo entero. Un error de una linea devolvia 22 KB sobre un payload de 21,8
+    KB, y crece con el campus. El editor solo necesita donde y por que.
+    """
+    detalle = [
+        {"loc": e.get("loc", []), "msg": e.get("msg", ""), "type": e.get("type", "")}
+        for e in exc.errors()
+    ]
+    return JSONResponse(status_code=422, content={"detail": detalle})
+
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    public = ["/login", "/cambiar-contrasena"]
+    if request.url.path in public or request.url.path.startswith("/static"):
+        return await call_next(request)
+    try:
+        return await call_next(request)
+    except HTTPException as exc:
+        if exc.status_code == 401:
+            root = request.scope.get("root_path", "")
+            return RedirectResponse(f"{root}/login")
+        raise
 
 _BASE = Path(__file__).resolve().parent.parent
 
