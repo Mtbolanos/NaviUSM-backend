@@ -99,6 +99,11 @@ class EdgeIn(_PayloadBase):
     # Peso cero o negativo rompe A*. El esquema no lo impide: no hay
     # CHECK (distancia > 0).
     weight: float = Field(gt=0)
+    # Escaleras exteriores del campus (hay desnivel). No implica grafo interior:
+    # sirve para penalizar o excluir el tramo al rutear en silla de ruedas, y es
+    # justamente lo que le da sentido a la regla de Nivel 3 de que el subgrafo
+    # accesible tambien tiene que ser conexo.
+    es_escalera: bool = False
 
     @model_validator(mode="after")
     def _sin_self_loops(self):
@@ -173,8 +178,9 @@ class PublishPayloadIn(_PayloadBase):
 
     @model_validator(mode="after")
     def _sin_aristas_duplicadas(self):
-        # El par va sin direccion: mobile.js recorre toda arista en los dos
-        # sentidos, asi que (a,b) y (b,a) son la misma arista para el ruteo.
+        # El par va sin direccion: el grafo se consume bidireccional
+        # (arista.es_bidireccional tiene default true y nadie lo escribe), asi
+        # que (a,b) y (b,a) son la misma arista para el ruteo.
         vistos, repetidos = set(), set()
         for a in self.edges:
             par = frozenset((a.desde, a.hasta))
