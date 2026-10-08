@@ -11,6 +11,7 @@ from app.grafo.schemas import (
 )
 from app.models import Sede, Usuario
 from app.security import get_current_user
+from app.validacion.topologia import validar_topologia
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -46,10 +47,10 @@ def publish_graph(
 
     # exclude_unset preserva el payload tal como lo mando el editor: validar no
     # puede alterar el artefacto que se publica.
-    version = publish_graph_data(
-        db, sede, payload.model_dump(by_alias=True, exclude_unset=True), user.organizacion_id
-    )
-    return PublishResultOut(version=version)
+    publicado = payload.model_dump(by_alias=True, exclude_unset=True)
+    version = publish_graph_data(db, sede, publicado, user.organizacion_id)
+    # Nivel 3, modo informativo: reporta, no bloquea. Corre despues de publicar.
+    return PublishResultOut(version=version, validacion=validar_topologia(publicado))
 
 @router.get("/api/v1/public/sedes/{sede_id}/snapshot")
 def get_public_snapshot(sede_id: str, db: Session = Depends(get_db)):
