@@ -54,16 +54,3 @@ app.include_router(sedes_router)
 app.include_router(grafo_router)
 app.include_router(zonas_router)
 app.include_router(salas_router)
-
-import os
-from fastapi import Request
-
-@app.get("/debug-static")
-def debug_static(request: Request):
-    static_dir = _BASE / "static"
-    return {
-        "base_dir_calculado": str(_BASE),
-        "static_dir_calculado": str(static_dir),
-        "existe_en_python": static_dir.exists(),
-        "contenido_css": os.listdir(static_dir / "css") if (static_dir / "css").exists() else "Carpeta css no encontrada"
-    }

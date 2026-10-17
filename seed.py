@@ -1,8 +1,10 @@
 # Creación inicial de datos en BD
+from pydantic import EmailStr, Field, ValidationError
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
 from app.database import SessionLocal
-from app.models import Caracteristica, Organizacion, Sede, Usuario
+from app.models import Caracteristica, Organizacion, Usuario
 from app.security import get_hash_password
-from sqlalchemy.exc import IntegrityError
 
 CARACTERISTICAS = [
     ("zona_segura", "Zona segura", "#1f7a5c"),
@@ -27,40 +29,49 @@ def seed_caracteristicas(db):
         print("⚠️ El catálogo de características ya existe en la base de datos.")
 
 
+class SeedSettings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    org_nombre: str = Field(min_length=1)
+    org_slug: str = Field(min_length=1, max_length=100, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+    admin_email: EmailStr
+    admin_password: str = Field(min_length=12)
+
+
 def seed_data():
+    try:
+        cfg = SeedSettings()
+    except ValidationError as exc:
+        raise SystemExit(f"❌ Faltan o son inválidas variables de seed en .env:\n{exc}")
+
     db = SessionLocal()
     try:
-        # 1. Crear Tenant (Universidad)
-        org = Organizacion(nombre="Universidad Técnica Federico Santa María", slug="usm")
-        db.add(org)
-        db.commit()
-        db.refresh(org)
+        # 1. Organización (idempotente por slug)
+        org = db.query(Organizacion).filter(Organizacion.slug == cfg.org_slug).first()
+        if org is None:
+            org = Organizacion(nombre=cfg.org_nombre, slug=cfg.org_slug)
+            db.add(org)
+            db.flush()
+            print(f"✅ Organización '{cfg.org_nombre}' creada.")
+        else:
+            print(f"⚠️ La organización '{cfg.org_slug}' ya existe.")
 
-        # 2. Crear Sede
-        sede = Sede(
-            organizacion_id=org.id, 
-            nombre="Sede Viña del Mar",
-            latitud=-33.036577,     # Centro real del mapa de la USM Viña
-            longitud=-71.486578,
-            zoom_defecto=18
-        )
-        db.add(sede)
-        
-        # 3. Crear Usuario Admin
-        admin = Usuario(
-            organizacion_id=org.id,
-            email="admin@usm.cl",
-            password_hash=get_hash_password("admin123"),
-            rol="admin"
-        )
-        db.add(admin)
+        # 2. Usuario admin inicial (idempotente por email; nunca se imprime la clave)
+        if db.query(Usuario).filter(Usuario.email == cfg.admin_email).first() is None:
+            db.add(Usuario(
+                organizacion_id=org.id,
+                email=cfg.admin_email,
+                password_hash=get_hash_password(cfg.admin_password),
+                rol="admin",
+            ))
+            print(f"✅ Admin '{cfg.admin_email}' creado.")
+        else:
+            print(f"⚠️ El admin '{cfg.admin_email}' ya existe; no se modifica su clave.")
+
         db.commit()
-        
-        print(f"✅ Setup completado.\nSede ID: {sede.id}\nLogin: admin@usm.cl / admin123")
-        
-    except IntegrityError:
+    except Exception:
         db.rollback()
-        print("⚠️ Los datos iniciales ya existen en la base de datos.")
+        raise
     finally:
         db.close()
 
