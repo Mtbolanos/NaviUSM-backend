@@ -787,3 +787,25 @@ ALTER TABLE public.zona ENABLE ROW LEVEL SECURITY;
 -- PostgreSQL database dump complete
 --
 
+--
+-- Migraciones posteriores al dump (instalaciones nuevas)
+--
+
+-- 002: API keys por organización para la app móvil
+-- Aplicar en bases existentes:
+--   docker compose exec -T db psql -U naviusm -d naviusm -v ON_ERROR_STOP=1 < migraciones/002_api_keys.sql
+
+CREATE TABLE IF NOT EXISTS public.api_key (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    organizacion_id uuid NOT NULL REFERENCES public.organizacion(id) ON DELETE CASCADE,
+    nombre character varying(255) NOT NULL,
+    prefijo character varying(16) NOT NULL,
+    key_hash character varying(64) NOT NULL UNIQUE,
+    created_by uuid REFERENCES public.usuario(id) ON DELETE SET NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    expires_at timestamp with time zone,
+    last_used_at timestamp with time zone,
+    revoked_at timestamp with time zone
+);
+
+CREATE INDEX IF NOT EXISTS idx_api_key_organizacion ON public.api_key USING btree (organizacion_id);

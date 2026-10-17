@@ -14,7 +14,7 @@ async function cargarEdificios() {
     return;
   }
   try {
-    const res = await fetch(`${ROOT_PATH}/api/v1/public/sedes/${sedeId}/snapshot`);
+    const res = await fetch(`${ROOT_PATH}/admin/api/sedes/${sedeId}/snapshot`);
     if (!res.ok) throw new Error();
     graphPayload = await res.json();
     renderTabla();

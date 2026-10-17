@@ -1,3 +1,4 @@
+from uuid import UUID
 from sqlalchemy import desc, text
 from sqlalchemy.orm import Session
 
@@ -25,7 +26,54 @@ def create_snapshot(db: Session, sede_id, org_id, payload: dict, version: int) -
     return snapshot
 
 
+class PayloadOwnershipError(ValueError):
+    """El payload referencia elementos de otra organización o sede, o tiene IDs inválidos."""
+
+
+def _parse_ids(items, key="id", skip=()):
+    ids = []
+    for item in items:
+        value = item.get(key)
+        if value in skip:
+            continue
+        try:
+            ids.append(str(UUID(str(value))))
+        except (ValueError, TypeError):
+            raise PayloadOwnershipError(f"ID inválido en el payload: {value!r}")
+    return ids
+
+
+def validate_payload_ownership(db: Session, sede: Sede, payload: dict, org_id) -> None:
+    """Impide que un publish modifique filas de otra organización o de otra sede reutilizando sus IDs."""
+    bld_ids = _parse_ids(payload.get("buildings", []), skip=("exterior",))
+    node_ids = _parse_ids(payload.get("nodes", []))
+    edge_ids = _parse_ids(payload.get("edges", []))
+    zona_ids = _parse_ids(payload.get("zonas", []))
+
+    checks = [
+        ("edificio", bld_ids, "organizacion_id <> :org OR sede_id <> :sede"),
+        ("nodo", node_ids, "organizacion_id <> :org OR sede_id <> :sede"),
+        ("zona", zona_ids, "organizacion_id <> :org OR sede_id <> :sede"),
+        ("arista", edge_ids, "organizacion_id <> :org"),
+    ]
+    for table, ids, condition in checks:
+        if not ids:
+            continue
+        conflict = db.execute(
+            text(f"SELECT 1 FROM {table} WHERE id = ANY(CAST(:ids AS uuid[])) AND ({condition}) LIMIT 1"),
+            {"ids": ids, "org": org_id, "sede": sede.id},
+        ).first()
+        if conflict:
+            raise PayloadOwnershipError(f"El payload contiene elementos ({table}) que pertenecen a otra sede u organización")
+
+    # Las aristas solo pueden unir nodos incluidos en este mismo payload
+    node_set = set(node_ids)
+    edges = payload.get("edges", [])
+    if set(_parse_ids(edges, "from")) - node_set or set(_parse_ids(edges, "to")) - node_set:
+        raise PayloadOwnershipError("Hay aristas que conectan nodos que no pertenecen a esta sede")
+
 def publish_graph_data(db: Session, sede: Sede, payload: dict, org_id) -> int:
+    validate_payload_ownership(db, sede, payload, org_id)
     # 1. Snapshot para consumo offline del móvil
     last_snap = get_latest_snapshot(db, sede.id)
     new_version = (last_snap.version + 1) if last_snap else 1
@@ -44,7 +92,9 @@ def publish_graph_data(db: Session, sede: Sede, payload: dict, org_id) -> int:
                 ON CONFLICT (id) DO UPDATE SET
                     nombre = EXCLUDED.nombre,
                     piso_min = EXCLUDED.piso_min,
-                    piso_max = EXCLUDED.piso_max
+                    piso_max = EXCLUDED.piso_max 
+                WHERE edificio.organizacion_id = EXCLUDED.organizacion_id 
+                AND edificio.sede_id = EXCLUDED.sede_id
             """),
             {"id": b["id"], "sede": sede.id, "org": org_id, "nombre": b["name"], "p_min": b["min"], "p_max": b["max"]},
         )
@@ -64,6 +114,8 @@ def publish_graph_data(db: Session, sede: Sede, payload: dict, org_id) -> int:
                     piso = EXCLUDED.piso,
                     tipo = EXCLUDED.tipo,
                     edificio_id = EXCLUDED.edificio_id
+                WHERE nodo.organizacion_id = EXCLUDED.organizacion_id 
+                AND nodo.sede_id = EXCLUDED.sede_id
             """),
             {
                 "id": n["id"], "sede": sede.id, "org": org_id,
@@ -83,6 +135,7 @@ def publish_graph_data(db: Session, sede: Sede, payload: dict, org_id) -> int:
                         horario = EXCLUDED.horario,
                         descripcion = EXCLUDED.descripcion,
                         link_derivacion = EXCLUDED.link_derivacion
+                    WHERE poi.organizacion_id = EXCLUDED.organizacion_id
                 """),
                 {
                     "nodo": n["id"], "org": org_id, "nombre": n["name"], "cat": n["type"],
@@ -104,6 +157,7 @@ def publish_graph_data(db: Session, sede: Sede, payload: dict, org_id) -> int:
                 ON CONFLICT (id) DO UPDATE SET
                     distancia = EXCLUDED.distancia,
                     es_escalera = EXCLUDED.es_escalera
+                WHERE arista.organizacion_id = EXCLUDED.organizacion_id
             """),
             {
                 "id": e["id"], 
