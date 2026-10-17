@@ -2,15 +2,14 @@
 
 Requisito: tener Docker y Docker Compose instalados.
 
-## 1. Clonar y elegir la rama correcta
+## 1. Clonar
 
 ```bash
 git clone <url-del-repo>
 cd NaviUSM-backend
-git checkout feature/zonas-y-salas
 ```
 
-⚠️ **Importante:** no usar `develop` por ahora. `develop` remoto quedó con la estructura vieja (archivos planos, sin `app/`) desde el revert que se hizo para la demo — todo lo nuevo (Zonas, Salas, geolocalización, Docker) vive en `feature/zonas-y-salas`.
+`main` es la versión productiva. El desarrollo se hace en ramas `feature/*` creadas desde `develop`.
 
 ## 2. Configurar variables de entorno
 
@@ -18,7 +17,12 @@ git checkout feature/zonas-y-salas
 cp .env.example .env
 ```
 
-El `.env.example` ya trae valores que funcionan out-of-the-box para desarrollo local, no hace falta tocar nada salvo que quieran su propia `SECRET_KEY`.
+Completar el `.env`. Las credenciales no traen valores por defecto, y sin ellas el proyecto no levanta:
+
+- `SECRET_KEY`: `openssl rand -base64 32 | tr '+/' '-_'`
+- `POSTGRES_PASSWORD`: `openssl rand -hex 32`
+- `ORG_NOMBRE`, `ORG_SLUG`, `ADMIN_EMAIL` y `ADMIN_PASSWORD` (mínimo 12 caracteres): la organización y el admin inicial que crea el seed.
+- `COOKIE_SECURE=false` para `http://localhost`; `true` detrás de HTTPS.
 
 ## 3. Levantar todo con Docker
 
@@ -26,19 +30,21 @@ El `.env.example` ya trae valores que funcionan out-of-the-box para desarrollo l
 docker compose up --build -d
 ```
 
-Esto levanta Postgres+PostGIS y el backend, y aplica automáticamente todo el schema (`schema_actualizado.sql`) porque el volumen de datos es nuevo.
+Esto levanta Postgres+PostGIS y el backend, y aplica automáticamente el schema (`schema_actualizado.sql`) porque el volumen de datos es nuevo.
 
-## 4. Poblar datos de prueba
+## 4. Crear la organización y el admin inicial
 
 ```bash
-docker compose exec backend python seed.py
+docker compose run --rm backend python seed.py
 ```
 
-Crea una organización, un usuario admin y una sede de prueba, más el catálogo de características de zonas (zona segura, zona silenciosa, etc). Solo hace falta correrlo una vez — si ya existen esos datos, el script lo detecta y no duplica nada.
+Crea la organización y el admin definidos en el `.env`, más el catálogo de características de zonas. Se puede correr varias veces: si ya existen, no duplica nada ni cambia la clave del admin. Las sedes se crean desde **Gestión de Sedes** en el panel.
+
+Después de correrlo, borrar `ADMIN_PASSWORD` del `.env` y ejecutar `docker compose up -d`. Todo el `.env` queda como variables de entorno del contenedor backend.
 
 ## 5. Entrar
 
-Abrir `http://localhost:8000/admin` — login con `admin@usm.cl` / `admin123`.
+Abrir `http://localhost:8000/admin` e iniciar sesión con el `ADMIN_EMAIL` y la `ADMIN_PASSWORD` definidos en el `.env`. El puerto se cambia con `NAVIUSM_PORT`.
 
 ## Día a día (después de la primera vez)
 
