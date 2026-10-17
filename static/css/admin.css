@@ -49,7 +49,8 @@ body { font-family: 'Space Grotesk', sans-serif; background: var(--naviusm-bg); 
 .btn-ed-ghost { background: var(--naviusm-surface2); color: var(--naviusm-text); border: 1px solid var(--naviusm-border); }
 .btn-ed-danger { background: var(--naviusm-red-dim); color: var(--naviusm-red); border: 1px solid rgba(255, 71, 87, 0.2); }
 
-.status-pill { margin-left: auto; background: var(--naviusm-surface2); border: 1px solid var(--naviusm-border); border-radius: 20px; padding: 5px 14px; font-size: 11px; color: var(--naviusm-muted); display: flex; align-items: center; gap: 8px; }
+.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.status-pill { background: var(--naviusm-surface2); border: 1px solid var(--naviusm-border); border-radius: 20px; padding: 5px 14px; font-size: 11px; color: var(--naviusm-muted); display: flex; align-items: center; gap: 8px; }
 .s-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--naviusm-green); }
 .s-dot.warn { background: var(--naviusm-accent); }
 .s-dot.err { background: var(--naviusm-red); }

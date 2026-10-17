@@ -62,7 +62,9 @@ function markClean() {
 }
 
 window.onload = async () => {
-  map = L.map('map', { zoomControl: true, maxZoom: 22 });
+  // Renderizador Canvas: permite 'tolerance', que agrega margen de clic alrededor de líneas y polígonos
+  // (con SVG el clic debía caer exactamente sobre los 3 px de la arista)
+  map = L.map('map', { zoomControl: true, maxZoom: 22, renderer: L.canvas({ tolerance: 8 }) });
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 22, maxNativeZoom: 19, attribution: '&copy; OpenStreetMap'
   }).addTo(map);
@@ -298,7 +300,7 @@ async function publishToServer() {
   const conf = await window.uiConfirm(promptMsg, "Publicar Mapa");
   if (!conf) return;
 
-  setStatus('Publicando...', 'warn');
+  setStatus('Publicando...', 'warn', { sticky: true });
 
   const dynamicBuildings = nodes.filter(n => n.type === 'building').map(n => ({ id: n.id, name: n.name, min: n.piso_min || 1, max: n.piso_max || 4 }));
 
@@ -325,10 +327,11 @@ async function publishToServer() {
     originalNodes = new Set(currentNodes);
     originalBuildings = new Set(currentBuildings);
 
-    setStatus(`✅ Mapa Guardado`, 'ok');
+    baseStatus = { msg: 'Grafo cargado', state: 'ok' }; // tras publicar, un "Mapa nuevo" ya tiene grafo
+    setStatus('Mapa guardado', 'ok');
     await window.uiAlert("El mapa ha sido publicado exitosamente.", "Éxito");
   } catch (err) {
-    setStatus('❌ Error al publicar', 'err');
+    setStatus('Error al publicar', 'err');
     await window.uiAlert("Hubo un error al publicar el mapa.", "Error");
   }
 }
@@ -350,7 +353,7 @@ async function loadFromServer() {
   const sedeId = document.getElementById('sede-selector')?.value;
   if (!sedeId) return;
   currentSedeId = sedeId;
-  setStatus('Cargando...', 'warn');
+  setStatus('Cargando...', 'warn', { sticky: true });
 
   centrarMapaEnSede();
 
@@ -359,17 +362,17 @@ async function loadFromServer() {
     if (res.status === 404) {
       hardClearMap();
       markClean();
-      setStatus('Mapa nuevo', 'ok');
+      setStatus('Mapa nuevo', 'ok', { base: true });
       return;
     }
     if (!res.ok) throw new Error();
     const data = await res.json();
     loadGraph(data);
     markClean();
-    setStatus('✅ Grafo cargado', 'ok');
+    setStatus('Grafo cargado', 'ok', { base: true });
   } catch (err) {
     console.error(err);
-    setStatus('❌ Error cargando el mapa', 'err');
+    setStatus('Error cargando el mapa', 'err', { base: true });
   }
 }
 
@@ -808,7 +811,7 @@ window.finishVertexEditing = function () {
     }
     editingZoneId = null;
   }
-  setStatus('⚠️ Contorno modificado sin guardar', 'warn');
+  setStatus('Contorno modificado', 'warn');
 }
 
 function renderZone(zone) {
@@ -924,9 +927,23 @@ function loadGraph(data) {
   updateBuildingSelector(); renderMapNodes();
 }
 
-function setStatus(msg, state) {
+const STATUS_RESET_MS = 7000;
+let baseStatus = { msg: 'Listo', state: 'ok' };
+let statusTimer = null;
+
+function renderStatus(msg, state) {
   document.getElementById('status-txt').textContent = msg;
   document.getElementById('sdot').className = 's-dot' + (state === 'warn' ? ' warn' : state === 'err' ? ' err' : '');
+}
+
+// base: estado de fondo al que se vuelve (p. ej. "Grafo cargado").
+// sticky: se mantiene hasta el próximo setStatus (operaciones en curso).
+// Por defecto el mensaje es temporal y a los 7 s vuelve al estado base.
+function setStatus(msg, state, { base = false, sticky = false } = {}) {
+  clearTimeout(statusTimer);
+  renderStatus(msg, state);
+  if (base) { baseStatus = { msg, state }; return; }
+  if (!sticky) statusTimer = setTimeout(() => renderStatus(baseStatus.msg, baseStatus.state), STATUS_RESET_MS);
 }
 
 async function attemptDeleteBuilding(nodeId, zoneObj = null) {
@@ -1010,7 +1027,7 @@ function undoLastDeletion() {
   applyMarkerDragging();
   renderMapNodes(); // vuelve a agregar marcadores y aristas según el piso visible
   markDirty();
-  setStatus('↶ Eliminación deshecha', 'ok');
+  setStatus('Eliminación deshecha', 'ok');
 }
 
 function hardClearMap() {
