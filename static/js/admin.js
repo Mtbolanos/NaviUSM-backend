@@ -24,6 +24,11 @@ let originalBuildings = new Set();
 let editingZoneId = null;
 let activePopup = null; // popup abierto según los eventos de Leaflet (el DOM tarda ~200 ms en desaparecer)
 
+let currentSedeId = null; // sede cargada; para revertir el selector si se cancela el cambio
+let undoStack = [];       // eliminaciones deshacibles con Ctrl/⌘+Z
+let deletionBatch = null; // eliminación en curso (agrupa nodos/aristas/zonas de una sola acción)
+const UNDO_LIMIT = 50;
+
 const ZONE_KINDS = {
   zonaseg: { tag: 'zona_segura', color: '#1f7a5c' },
   edificio: { tag: 'contorno_edificio', color: '#3b6e8f' },
@@ -41,8 +46,20 @@ let drawingZonePreviewLayer = null;
 let drawingZoneVertexLayers = [];
 
 window.addEventListener('beforeunload', (e) => {
-  if (hasUnsavedChanges) e.returnValue = "Tienes cambios sin publicar. ¿Seguro que deseas salir?";
+  if (!hasUnsavedChanges) return;
+  e.preventDefault();  // forma estándar de pedir confirmación al salir
+  e.returnValue = '';  // compatibilidad con navegadores antiguos
 });
+
+function markDirty() {
+  hasUnsavedChanges = true;
+  document.getElementById('dirty-badge').hidden = false;
+}
+
+function markClean() {
+  hasUnsavedChanges = false;
+  document.getElementById('dirty-badge').hidden = true;
+}
 
 window.onload = async () => {
   map = L.map('map', { zoomControl: true, maxZoom: 22 });
@@ -69,6 +86,11 @@ function onKeyDown(ev) {
     // Esc dentro de un campo del sidebar: solo sale del campo
     if (isEditableTarget(ev.target) && !ev.target.closest('.leaflet-popup')) { ev.target.blur(); return; }
     handleEscape();
+    return;
+  }
+  if ((ev.ctrlKey || ev.metaKey) && !ev.shiftKey && !ev.altKey && (ev.key || '').toLowerCase() === 'z' && !isEditableTarget(ev.target)) {
+    ev.preventDefault();
+    undoLastDeletion();
     return;
   }
   if (ev.ctrlKey || ev.metaKey || ev.altKey || isEditableTarget(ev.target)) return;
@@ -98,6 +120,11 @@ function applyMarkerDragging() {
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// Leaflet inserta el contenido string de un tooltip como HTML: siempre escapar el nombre
+function setNodeTooltip(marker, name) {
+  marker.bindTooltip(escapeHtml(name), { permanent: false, direction: 'top' });
 }
 
 function floorLabel(i) {
@@ -293,7 +320,7 @@ async function publishToServer() {
       body: JSON.stringify(payload)
     });
     if (!res.ok) throw new Error();
-    hasUnsavedChanges = false;
+    markClean();
 
     originalNodes = new Set(currentNodes);
     originalBuildings = new Set(currentBuildings);
@@ -306,24 +333,39 @@ async function publishToServer() {
   }
 }
 
+// Cambio de sede desde el selector: pedir confirmación si hay cambios sin publicar
+async function onSedeChange() {
+  const sel = document.getElementById('sede-selector');
+  if (hasUnsavedChanges) {
+    const proceed = await window.uiConfirm(
+      "Tienes cambios sin publicar en esta sede. Si cambias de sede se perderán.\n¿Continuar de todos modos?",
+      "Cambios sin publicar");
+    if (!proceed) { sel.value = currentSedeId; return; }
+  }
+  loadFromServer();
+}
+
 async function loadFromServer() {
   setMode('view'); // al cargar o cambiar de sede siempre se parte en modo Ver
   const sedeId = document.getElementById('sede-selector')?.value;
   if (!sedeId) return;
+  currentSedeId = sedeId;
   setStatus('Cargando...', 'warn');
-  
+
   centrarMapaEnSede();
 
   try {
     const res = await fetch(BASE_URL + `/api/v1/public/sedes/${sedeId}/snapshot`);
-    if (res.status === 404) { 
-      hardClearMap(); 
-      setStatus('Mapa nuevo', 'ok'); 
-      return; 
+    if (res.status === 404) {
+      hardClearMap();
+      markClean();
+      setStatus('Mapa nuevo', 'ok');
+      return;
     }
     if (!res.ok) throw new Error();
     const data = await res.json();
     loadGraph(data);
+    markClean();
     setStatus('✅ Grafo cargado', 'ok');
   } catch (err) {
     console.error(err);
@@ -353,6 +395,7 @@ function setMode(m) {
     document.getElementById('node-creation-properties').style.display = m === 'add' ? 'block' : 'none';
     document.getElementById('edge-creation-properties').style.display = m === 'edge' ? 'block' : 'none';
     document.getElementById('view-legend').style.display = m === 'view' ? 'block' : 'none';
+    document.getElementById('delete-hint').style.display = m === 'delete' ? 'block' : 'none';
   }
 
   const bldFilter = document.getElementById('field-building-filter');
@@ -401,7 +444,7 @@ function onMapClick(e) {
     const isDuplicate = nodes.some(n => n.floor === currentFloor && n.latlng.distanceTo(e.latlng) < 0.5);
     if (isDuplicate) return;
 
-    hasUnsavedChanges = true;
+    markDirty();
     const rawName = document.getElementById('node-name-input').value.trim();
     const sysType = SYSTEM_TYPES[selNodeType];
     const id = crypto.randomUUID();
@@ -414,8 +457,7 @@ function onMapClick(e) {
     el.style.width = sysType.size + 'px'; el.style.height = sysType.size + 'px'; el.textContent = icon;
 
     const marker = L.marker(e.latlng, { icon: L.divIcon({ html: el, iconSize: [sysType.size, sysType.size], className: '' }), draggable: true }).addTo(map);
-    marker.bindTooltip(name, { permanent: false, direction: 'top' });
-
+    setNodeTooltip(marker, name);
     let extraProps = {};
     if (selNodeType === 'building') extraProps = { piso_min: 1, piso_max: 4 };
     if (selNodeType !== 'waypoint' && selNodeType !== 'user') {
@@ -430,7 +472,9 @@ function onMapClick(e) {
     nodes.push(node);
 
     marker.on('click', (ev) => { L.DomEvent.stopPropagation(ev); onNodeClick(id, ev.latlng); });
-    marker.on('dragend', () => { node.latlng = marker.getLatLng(); rebuildLines(); });
+    marker.on('dragend', () => { node.latlng = marker.getLatLng(); rebuildLines(); markDirty(); });
+    // Limpiar el nombre para no crear otro punto con el mismo nombre al siguiente clic (el tipo se mantiene)
+    document.getElementById('node-name-input').value = '';
 
     if (selNodeType === 'building') updateBuildingSelector();
     renderMapNodes();
@@ -445,13 +489,13 @@ function openEditPopup(type, id, latlng) {
     const isBld = n.type === 'building';
     const isSrv = n.type !== 'waypoint' && n.type !== 'user';
 
-    const bOptions = nodes.filter(x => x.type === 'building').map(b => `<option value="${b.id}" ${b.id === n.building ? 'selected' : ''}>${b.name}</option>`).join('');
+    const bOptions = nodes.filter(x => x.type === 'building').map(b => `<option value="${escapeHtml(b.id)}" ${b.id === n.building ? 'selected' : ''}>${escapeHtml(b.name)}</option>`).join('');
 
     html = `
           <div class="pop-edit">
             <h6 style="margin-bottom:10px; font-weight:bold; color:var(--naviusm-text);">Editar ${isBld ? 'Edificio' : 'Nodo'}</h6>
             <label>Nombre</label>
-            <input type="text" id="pop-name" class="form-control form-control-sm mb-2" value="${n.name}">
+            <input type="text" id="pop-name" class="form-control form-control-sm mb-2" value="${escapeHtml(n.name)}">
             
             ${!isBld ? `
             <label>Edificio Asignado</label>
@@ -463,13 +507,13 @@ function openEditPopup(type, id, latlng) {
 
             ${isSrv ? `
               <label>Icono (Emoji)</label>
-          <input type="text" id="pop-icon" class="form-control form-control-sm mb-2" value="${n.icon || ''}" maxlength="4">
+          <input type="text" id="pop-icon" class="form-control form-control-sm mb-2" value="${escapeHtml(n.icon)}" maxlength="4">
           <label>Horario</label>
-          <input type="text" id="pop-horario" class="form-control form-control-sm mb-2" value="${n.horario || ''}">
+          <input type="text" id="pop-horario" class="form-control form-control-sm mb-2" value="${escapeHtml(n.horario)}">
           <label>Descripción</label>
-          <textarea id="pop-desc" class="form-control form-control-sm mb-2" rows="2">${n.descripcion || ''}</textarea>
+          <textarea id="pop-desc" class="form-control form-control-sm mb-2" rows="2">${escapeHtml(n.descripcion)}</textarea>
           <label>Link</label>
-          <input type="url" id="pop-link" class="form-control form-control-sm mb-2" value="${n.link_derivacion || ''}">
+          <input type="url" id="pop-link" class="form-control form-control-sm mb-2" value="${escapeHtml(n.link_derivacion)}">
         ` : ''}
         <div class="d-flex justify-content-end gap-2 mt-3">
           <button class="btn btn-sm btn-secondary" onclick="map.closePopup()">Cancelar</button>
@@ -498,9 +542,10 @@ function openEditPopup(type, id, latlng) {
       <div class="pop-edit">
         <h6 style="margin-bottom:10px; font-weight:bold; color:var(--naviusm-text);">Editar Zona / Edificio</h6>
         <label>Nombre</label>
-        <input type="text" id="pop-zone-name" class="form-control form-control-sm mb-2" value="${z.name}">
+        <input type="text" id="pop-zone-name" class="form-control form-control-sm mb-2" value="${escapeHtml(z.name)}">
         <div class="d-flex justify-content-end gap-2 mt-3">
           <button class="btn btn-sm btn-warning me-auto" style="font-weight:bold; color:black;" onclick="enableZoneVertexEditing('${id}'); map.closePopup();">Modificar Contorno</button>
+          <button class="btn btn-sm btn-secondary" onclick="map.closePopup()">Cancelar</button>
           <button class="btn btn-sm btn-success" style="background:var(--naviusm-green); border:none;" onclick="saveZoneEdit('${id}')">Guardar</button>
         </div>
       </div>
@@ -524,14 +569,14 @@ window.saveNodeEdit = function (id) {
     n.descripcion = document.getElementById('pop-desc').value;
     n.link_derivacion = document.getElementById('pop-link').value;
   }
-  n.marker.bindTooltip(n.name, { permanent: false, direction: 'top' });
+  setNodeTooltip(n.marker, n.name);
   if (n.type === 'building') {
     const z = zones.find(z => z.building === id);
     if (z) z.name = n.name;
     updateBuildingSelector();
   }
   map.closePopup();
-  hasUnsavedChanges = true;
+  markDirty();
 };
 
 window.saveEdgeEdit = function (id) {
@@ -539,7 +584,7 @@ window.saveEdgeEdit = function (id) {
   e.es_escalera = document.getElementById('pop-es-escalera').checked;
   e.line.setStyle({ color: e.es_escalera ? '#f5a623' : '#4a9eff' });
   map.closePopup();
-  hasUnsavedChanges = true;
+  markDirty();
 };
 
 window.saveZoneEdit = function (id) {
@@ -549,12 +594,12 @@ window.saveZoneEdit = function (id) {
     const n = nodes.find(n => n.id === z.building);
     if (n) {
       n.name = z.name;
-      n.marker.bindTooltip(n.name, { permanent: false, direction: 'top' });
+      setNodeTooltip(n.marker, n.name);
     }
     updateBuildingSelector();
   }
   map.closePopup();
-  hasUnsavedChanges = true;
+  markDirty();
 };
 
 function onNodeClick(id, latlng) {
@@ -568,7 +613,7 @@ function onNodeClick(id, latlng) {
     if (n.type === 'building') {
       attemptDeleteBuilding(id);
     } else {
-      executeNodeDeletion(id);
+      recordDeletion(() => executeNodeDeletion(id));
     }
     return;
   }
@@ -604,14 +649,14 @@ function addEdge(from, to) {
   line.on('click', (ev) => onEdgeClick(id, line, ev));
 
   edges.push({ id, from, to, weight: weight + penalty, es_escalera: isEscalera, line });
-  hasUnsavedChanges = true;
+  markDirty();
   renderMapNodes();
 }
 
 function onEdgeClick(id, line, ev) {
   L.DomEvent.stopPropagation(ev);
   if (mode === 'delete') {
-    line.removeFrom(map); edges = edges.filter(e => e.id !== id); hasUnsavedChanges = true;
+    recordDeletion(() => executeEdgeDeletion(id));
   } else if (mode === 'view') {
     openInfoPopup('edge', id, ev.latlng);
   } else {
@@ -666,7 +711,7 @@ function populateZoneBuildingSelect(kind) {
   const sel = document.getElementById(kind + '-building-select');
   if (!sel) return;
   sel.innerHTML = '<option value="exterior">Exterior / Campus</option>' +
-    nodes.filter(n => n.type === 'building').map(b => `<option value="${b.id}">${b.name}</option>`).join('');
+    nodes.filter(n => n.type === 'building').map(b => `<option value="${escapeHtml(b.id)}">${escapeHtml(b.name)}</option>`).join('');
 }
 
 function openZonePanel(kind) {
@@ -689,10 +734,10 @@ function confirmZoneConfig(kind) {
     el.style.width = '30px'; el.style.height = '30px'; el.textContent = '🏛️';
 
     const marker = L.marker(tempBldNodeLatLng, { icon: L.divIcon({ html: el, iconSize: [30, 30], className: '' }), draggable: mode === 'add' }).addTo(map);
-    marker.bindTooltip(name, { permanent: false, direction: 'top' });
+    setNodeTooltip(marker, name);
 
     marker.on('click', (ev) => { L.DomEvent.stopPropagation(ev); onNodeClick(nodeId, ev.latlng); });
-    marker.on('dragend', () => { node.latlng = marker.getLatLng(); rebuildLines(); });
+    marker.on('dragend', () => { node.latlng = marker.getLatLng(); rebuildLines(); markDirty(); });
 
     const node = { id: nodeId, type: 'building', name: name, icon: '🏛️', latlng: tempBldNodeLatLng, floor: currentFloor, building: 'exterior', marker, el, piso_min: 1, piso_max: 4 };
     nodes.push(node);
@@ -717,7 +762,7 @@ function confirmZoneConfig(kind) {
     zones.push(zone);
     renderZone(zone);
   }
-  hasUnsavedChanges = true;
+  markDirty();
   openZonePanel(kind);
 }
 
@@ -743,7 +788,7 @@ function enableZoneVertexEditing(id) {
       zone.polygon.eachLayer(layer => {
         layer.setLatLngs(leafletCoords);
       });
-      hasUnsavedChanges = true;
+      markDirty();
     });
     drawingZoneVertexLayers.push(marker);
   });
@@ -776,7 +821,7 @@ function renderZone(zone) {
       if (zone.building) {
         attemptDeleteBuilding(zone.building, zone);
       } else {
-        executeZoneDeletion(zone);
+        recordDeletion(() => executeZoneDeletion(zone));
       }
     } else if (mode === 'view') {
       openInfoPopup('zone', zone.id, ev.latlng);
@@ -793,18 +838,6 @@ function shadeColor(hex, p) {
 }
 function colorForZone(zone) {
   const k = Object.values(ZONE_KINDS).find(k => zone.tags.includes(k.tag)); return k ? k.color : '#888888';
-}
-
-function clearAll(silent = false) {
-  if (!silent && !confirm('¿Vaciar todos los nodos del PISO ACTUAL?')) return;
-  const toDelete = nodes.filter(n => n.floor === currentFloor).map(n => n.id);
-  toDelete.forEach(id => {
-    nodes.find(n => n.id === id).marker.removeFrom(map);
-    edges.filter(e => e.from === id || e.to === id).forEach(e => e.line.removeFrom(map));
-    edges = edges.filter(e => e.from !== id && e.to !== id);
-    nodes = nodes.filter(n => n.id !== id);
-  });
-  cancelEdge(); renderMapNodes(); hasUnsavedChanges = true;
 }
 
 function rebuildLines() {
@@ -834,6 +867,7 @@ function loadGraph(data) {
   nodes.forEach(n => n.marker.removeFrom(map));
   zones.forEach(z => z.polygon && z.polygon.removeFrom(map));
   nodes = []; edges = []; zones = [];
+  undoStack = [];
   if (!data.nodes || !data.edges) return;
   const idMap = {}; const isUUID = (str) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(str);
 
@@ -869,12 +903,12 @@ function loadGraph(data) {
     const el = document.createElement('div'); el.className = `graph-node type-${n.type}`;
     el.style.width = sysType.size + 'px'; el.style.height = sysType.size + 'px'; el.textContent = n.icon || sysType.icon;
     const marker = L.marker([n.lat, n.lng], { icon: L.divIcon({ html: el, iconSize: [sysType.size, sysType.size], className: '' }), draggable: mode === 'add' });
-    marker.bindTooltip(n.name, { permanent: false, direction: 'top' });
+    setNodeTooltip(marker, n.name);
     const serviceProps = n.type !== 'waypoint' && n.type !== 'user' ? { horario: n.horario, descripcion: n.descripcion, link_derivacion: n.link_derivacion } : {};
     const node = { id: n.id, type: n.type, name: n.name, icon: n.icon, latlng: L.latLng(n.lat, n.lng), floor: n.floor, building: n.building || 'exterior', marker, el, ...serviceProps };
     nodes.push(node);
     marker.on('click', (ev) => { L.DomEvent.stopPropagation(ev); onNodeClick(n.id, ev.latlng); });
-    marker.on('dragend', () => { node.latlng = marker.getLatLng(); rebuildLines(); hasUnsavedChanges = true; });
+    marker.on('dragend', () => { node.latlng = marker.getLatLng(); rebuildLines(); markDirty(); });
   });
 
   data.edges.forEach(e => {
@@ -892,7 +926,7 @@ function loadGraph(data) {
 
 function setStatus(msg, state) {
   document.getElementById('status-txt').textContent = msg;
-  document.getElementById('sdot').className = 's-dot' + (state === 'warn' ? ' warn' : '');
+  document.getElementById('sdot').className = 's-dot' + (state === 'warn' ? ' warn' : state === 'err' ? ' err' : '');
 }
 
 async function attemptDeleteBuilding(nodeId, zoneObj = null) {
@@ -907,34 +941,76 @@ async function attemptDeleteBuilding(nodeId, zoneObj = null) {
   const proceed = await window.uiConfirm(confirmMsg, "Eliminar Edificio");
   if (!proceed) return;
 
-  if (zoneObj) {
-    executeZoneDeletion(zoneObj);
-  } else {
-    const z = zones.find(z => z.building === nodeId);
-    if (z) executeZoneDeletion(z);
-  }
-
-  childNodes.forEach(child => executeNodeDeletion(child.id));
-
-  executeNodeDeletion(nodeId);
+  // Todo el edificio (contorno, hijos y nodo) es UNA acción: un solo Ctrl/⌘+Z lo restaura
+  recordDeletion(() => {
+    if (zoneObj) {
+      executeZoneDeletion(zoneObj);
+    } else {
+      const z = zones.find(z => z.building === nodeId);
+      if (z) executeZoneDeletion(z);
+    }
+    childNodes.forEach(child => executeNodeDeletion(child.id));
+    executeNodeDeletion(nodeId);
+  });
 }
 
 function executeZoneDeletion(zone) {
   if (zone.polygon) zone.polygon.removeFrom(map);
   zones = zones.filter(z => z.id !== zone.id);
-  hasUnsavedChanges = true;
+  if (deletionBatch) deletionBatch.zones.push(zone);
+  markDirty();
+}
+
+function executeEdgeDeletion(id) {
+  const e = edges.find(x => x.id === id);
+  if (!e) return;
+  e.line.removeFrom(map);
+  edges = edges.filter(x => x.id !== id);
+  if (deletionBatch) deletionBatch.edges.push(e);
+  markDirty();
 }
 
 function executeNodeDeletion(id) {
   const n = nodes.find(x => x.id === id);
   if (!n) return;
   n.marker.removeFrom(map);
-  edges.filter(e => e.from === id || e.to === id).forEach(e => e.line.removeFrom(map));
+  const removedEdges = edges.filter(e => e.from === id || e.to === id);
+  removedEdges.forEach(e => e.line.removeFrom(map));
   edges = edges.filter(e => e.from !== id && e.to !== id);
   nodes = nodes.filter(x => x.id !== id);
+  if (deletionBatch) { deletionBatch.nodes.push(n); deletionBatch.edges.push(...removedEdges); }
   if (n.type === 'building') updateBuildingSelector();
-  hasUnsavedChanges = true;
+  markDirty();
   renderMapNodes();
+}
+
+// Ejecuta una eliminación y la guarda como una sola acción deshacible
+function recordDeletion(fn) {
+  const batch = { nodes: [], edges: [], zones: [] };
+  deletionBatch = batch;
+  try { fn(); } finally { deletionBatch = null; }
+  if (batch.nodes.length || batch.edges.length || batch.zones.length) {
+    undoStack.push(batch);
+    if (undoStack.length > UNDO_LIMIT) undoStack.shift();
+  }
+}
+
+function undoLastDeletion() {
+  const batch = undoStack.pop();
+  if (!batch) { setStatus('Nada que deshacer', 'ok'); return; }
+
+  nodes.push(...batch.nodes);
+  batch.edges.forEach(e => {
+    const endpointsExist = nodes.some(n => n.id === e.from) && nodes.some(n => n.id === e.to);
+    if (endpointsExist && !edges.some(x => x.id === e.id)) edges.push(e);
+  });
+  batch.zones.forEach(z => { zones.push(z); if (z.polygon) z.polygon.addTo(map); });
+
+  if (batch.nodes.some(n => n.type === 'building')) updateBuildingSelector();
+  applyMarkerDragging();
+  renderMapNodes(); // vuelve a agregar marcadores y aristas según el piso visible
+  markDirty();
+  setStatus('↶ Eliminación deshecha', 'ok');
 }
 
 function hardClearMap() {
@@ -944,8 +1020,9 @@ function hardClearMap() {
   if (drawingZonePreviewLayer) { drawingZonePreviewLayer.removeFrom(map); drawingZonePreviewLayer = null; }
   drawingZoneVertexLayers.forEach(m => m.removeFrom(map));
   drawingZoneVertexLayers = [];
-  
+
   nodes = []; edges = []; zones = [];
+  undoStack = [];
   originalNodes = new Set();
   originalBuildings = new Set();
   currentBuilding = 'exterior';

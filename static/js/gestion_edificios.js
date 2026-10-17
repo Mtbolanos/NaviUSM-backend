@@ -1,6 +1,11 @@
 const ROOT_PATH = window.GESTION_CONFIG.rootPath;
 const sedesInfo = window.GESTION_CONFIG.sedesInfo;
 let graphPayload = null;
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
 let sedeId = sedesInfo.length > 0 ? sedesInfo[0].id : null;
 
 async function cargarEdificios() {
@@ -29,7 +34,7 @@ function renderTabla() {
 
   tbody.innerHTML = blds.map(b => `
     <tr>
-      <td class="align-middle fw-bold" style="color: white;">${b.name}</td>
+      <td class="align-middle fw-bold" style="color: white;">${escapeHtml(b.name)}</td>
       <td class="text-center align-middle">
         <div class="d-flex justify-content-center align-items-center gap-3">
           <span class="text-muted" style="font-size: 11px;">Desde</span>
@@ -66,9 +71,12 @@ async function eliminarEdificio(id) {
   const proceed = await window.uiConfirm(confirmMsg, "Eliminar Edificio");
   if (!proceed) return;
 
+  // Se eliminan el nodo del edificio, sus nodos hijos, sus zonas y TODAS las aristas que los tocan
+  const removedIds = new Set(graphPayload.nodes.filter(n => n.id === id || n.building === id).map(n => n.id));
   graphPayload.buildings = graphPayload.buildings.filter(b => b.id !== id);
-  graphPayload.nodes = graphPayload.nodes.filter(n => n.building !== id);
-  graphPayload.zonas = graphPayload.zonas.filter(z => z.building !== id);
+  graphPayload.nodes = graphPayload.nodes.filter(n => !removedIds.has(n.id));
+  graphPayload.edges = (graphPayload.edges || []).filter(e => !removedIds.has(e.from) && !removedIds.has(e.to));
+  graphPayload.zonas = (graphPayload.zonas || []).filter(z => z.building !== id);
   renderTabla();
 }
 
