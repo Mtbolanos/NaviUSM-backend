@@ -23,8 +23,7 @@
                     Mapa</a></li>
             <li class="nav-item"><a class="nav-link"
                     href="{{ request.scope.get('root_path', '') }}/admin/edificios">Gestión Edificios</a></li>
-            <li class="nav-item"><a class="nav-link" href="{{ request.scope.get('root_path', '') }}/admin/sedes">Gestión
-                    Sedes</a></li>
+            <li class="nav-item"><a class="nav-link" href="{{ request.scope.get('root_path', '') }}/admin/sedes">Gestión Sedes</a></li>
         </ul>
         <div class="ms-auto d-flex align-items-center">
             <div class="dropdown">
@@ -43,6 +42,7 @@
                     <li>
                         <hr class="dropdown-divider">
                     </li>
+                    <li><a class="dropdown-item" href="{{ request.scope.get('root_path', '') }}/admin/api-keys">API Keys</a></li>
                     <li><a class="dropdown-item"
                             href="{{ request.scope.get('root_path', '') }}/cambiar-contrasena">Cambiar
                             Contraseña</a></li>

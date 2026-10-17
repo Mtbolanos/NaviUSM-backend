@@ -358,7 +358,7 @@ async function loadFromServer() {
   centrarMapaEnSede();
 
   try {
-    const res = await fetch(BASE_URL + `/api/v1/public/sedes/${sedeId}/snapshot`);
+    const res = await fetch(BASE_URL + `/admin/api/sedes/${sedeId}/snapshot`);
     if (res.status === 404) {
       hardClearMap();
       markClean();
