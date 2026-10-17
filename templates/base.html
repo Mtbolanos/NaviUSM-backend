@@ -12,7 +12,7 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap"
         rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', path='css/admin.css') }}?v=0.4.0">
+    <link rel="stylesheet" href="{{ url_for('static', path='css/admin.css') }}?v=0.4.1">
 </head>
 
 <body>
@@ -75,6 +75,8 @@
     </div>
     <script>
         window.createDynamicModal = function (message, title, showCancel) {
+            // Título y mensaje pueden incluir nombres ingresados por usuarios: se escapan antes de insertarlos como HTML
+            const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
             return new Promise((resolve) => {
                 const modalId = 'ui-modal-' + Math.random().toString(36).substring(2, 10);
                 const html = `

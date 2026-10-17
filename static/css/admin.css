@@ -52,6 +52,9 @@ body { font-family: 'Space Grotesk', sans-serif; background: var(--naviusm-bg); 
 .status-pill { margin-left: auto; background: var(--naviusm-surface2); border: 1px solid var(--naviusm-border); border-radius: 20px; padding: 5px 14px; font-size: 11px; color: var(--naviusm-muted); display: flex; align-items: center; gap: 8px; }
 .s-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--naviusm-green); }
 .s-dot.warn { background: var(--naviusm-accent); }
+.s-dot.err { background: var(--naviusm-red); }
+.dirty-badge { font-size: 11px; font-weight: 700; color: var(--naviusm-accent); white-space: nowrap; }
+#delete-hint kbd { font-size: 10px; padding: 1px 4px; }
 
 .main { display: flex; flex: 1; min-height: 0; }
 #map { flex: 1; background: #0c1520; }
