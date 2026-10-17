@@ -29,13 +29,13 @@
       Elemento</button>
   </div>
 
-  <div class="sep"></div>
-  <button class="btn-ed btn-ed-accent" onclick="publishToServer()">Publicar Mapa</button>
-  <span id="dirty-badge" class="dirty-badge" hidden>● Cambios sin publicar</span>
-
-  <div class="status-pill">
-    <div class="s-dot" id="sdot"></div>
-    <span id="status-txt">Listo</span>
+  <div class="topbar-right">
+    <span id="dirty-badge" class="dirty-badge" hidden>● Cambios sin publicar</span>
+    <div class="status-pill">
+      <div class="s-dot" id="sdot"></div>
+      <span id="status-txt">Listo</span>
+    </div>
+    <button class="btn-ed btn-ed-accent" onclick="publishToServer()">Publicar Mapa</button>
   </div>
 </div>
 
@@ -214,5 +214,5 @@
     sedesInfo: {{ sedes_json | tojson | safe }}
     };
 </script>
-<script src="{{ url_for('static', path='js/admin.js') }}?v=0.4.1"></script>
+<script src="{{ url_for('static', path='js/admin.js') }}?v=0.4.2"></script>
 {% endblock %}
