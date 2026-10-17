@@ -84,10 +84,10 @@
                     <div class="modal-dialog modal-dialog-centered modal-sm">
                         <div class="modal-content" style="background: var(--naviusm-surface); border: 1px solid var(--naviusm-border);">
                             <div class="modal-header border-0 pb-0">
-                                <h6 class="modal-title fw-bold">${title}</h6>
+                                <h6 class="modal-title fw-bold">${esc(title)}</h6>
                             </div>
                             <div class="modal-body pb-0" style="font-size: 13px; color: var(--naviusm-text);">
-                                ${message.replace(/\n/g, '<br>')}
+                                ${esc(message).replace(/\n/g, '<br>')}
                             </div>
                             <div class="modal-footer border-0 pt-3">
                                 ${showCancel ? `<button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>` : ''}
