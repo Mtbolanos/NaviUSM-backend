@@ -11,7 +11,7 @@ const SYSTEM_TYPES = {
   servicio: { icon: '🏥', size: 26 }
 };
 
-let map, nodes = [], edges = [], mode = 'add';
+let map, nodes = [], edges = [], mode = 'view';
 let selNodeType = 'waypoint', edgeFrom = null;
 let currentFloor = 1, currentBuilding = 'exterior';
 
@@ -22,11 +22,19 @@ let tempBldNodeLatLng = null;
 let originalNodes = new Set();
 let originalBuildings = new Set();
 let editingZoneId = null;
+let activePopup = null; // popup abierto según los eventos de Leaflet (el DOM tarda ~200 ms en desaparecer)
 
 const ZONE_KINDS = {
   zonaseg: { tag: 'zona_segura', color: '#1f7a5c' },
   edificio: { tag: 'contorno_edificio', color: '#3b6e8f' },
 };
+const MODES = ['view', 'add', 'edge', 'zonaseg', 'edificio', 'delete'];
+const MODE_SHORTCUTS = { v: 'view', n: 'add', a: 'edge', z: 'zonaseg', e: 'edificio', d: 'delete' };
+const NODE_TYPE_LABELS = {
+  waypoint: 'Punto de ruta', building: 'Edificio', entrance: 'Entrada / Sala',
+  'baño': 'Baño', seguridad: 'Puesto de seguridad', servicio: 'Servicio'
+};
+
 let zones = [];
 let drawingZonePoints = [];
 let drawingZonePreviewLayer = null;
@@ -43,15 +51,125 @@ window.onload = async () => {
   }).addTo(map);
 
   map.on('click', onMapClick);
-  document.addEventListener('keydown', (ev) => {
-    if (ev.key === 'Escape') {
-      if (mode === 'zonaseg' || mode === 'edificio') cancelZoneDrawing();
-      if (mode === 'edge') cancelEdge();
-    }
-  });
+  map.on('popupopen', (e) => { activePopup = e.popup; });
+  map.on('popupclose', (e) => { if (activePopup === e.popup) activePopup = null; });
+  // Fase de captura: corre antes que el manejador de Esc de Leaflet, con el popup aún abierto
+  document.addEventListener('keydown', onKeyDown, true);
   centrarMapaEnSede();
   loadFromServer();
 };
+
+function isEditableTarget(el) {
+  return !!el && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName));
+}
+
+function onKeyDown(ev) {
+  if (document.querySelector('.modal.show')) return; // diálogo uiConfirm/uiAlert abierto
+  if (ev.key === 'Escape') {
+    // Esc dentro de un campo del sidebar: solo sale del campo
+    if (isEditableTarget(ev.target) && !ev.target.closest('.leaflet-popup')) { ev.target.blur(); return; }
+    handleEscape();
+    return;
+  }
+  if (ev.ctrlKey || ev.metaKey || ev.altKey || isEditableTarget(ev.target)) return;
+  const target = MODE_SHORTCUTS[(ev.key || '').toLowerCase()];
+  if (target && target !== mode) { ev.preventDefault(); setMode(target); }
+}
+
+// Esc deshace un nivel por vez: popup → edición de vértices → dibujo en curso → arista a medias → modo Ver
+function handleEscape() {
+  if (activePopup) { map.closePopup(); return; }
+  if (document.getElementById('vertex-edit-toolbar').style.display !== 'none') { finishVertexEditing(); return; }
+  if ((mode === 'zonaseg' || mode === 'edificio') && (drawingZonePoints.length > 0 || tempBldMarker)) { cancelZoneDrawing(); return; }
+  if (mode === 'edge' && edgeFrom) { cancelEdge(); return; }
+  if (mode !== 'view') setMode('view');
+}
+
+function setMarkerDraggable(marker, enabled) {
+  // options.draggable se respeta si el marcador aún no está en el mapa (otro piso);
+  // dragging existe solo después de agregarlo por primera vez
+  marker.options.draggable = enabled;
+  if (marker.dragging) enabled ? marker.dragging.enable() : marker.dragging.disable();
+}
+
+function applyMarkerDragging() {
+  nodes.forEach(n => setMarkerDraggable(n.marker, mode === 'add'));
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function floorLabel(i) {
+  return i === 0 ? 'Planta Baja (0)' : (i < 0 ? `Sub. ${Math.abs(i)}` : `Nivel ${i}`);
+}
+
+function buildingName(id) {
+  if (!id || id === 'exterior') return 'Campus (Exterior)';
+  const b = nodes.find(n => n.id === id);
+  return b ? (b.name || 'Edificio') : 'Edificio';
+}
+
+function safeLinkHtml(url) {
+  try {
+    const u = new URL(url);
+    if (u.protocol === 'http:' || u.protocol === 'https:') {
+      return `<a href="${escapeHtml(u.href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a>`;
+    }
+  } catch (_) { /* no es una URL válida: se muestra como texto */ }
+  return escapeHtml(url);
+}
+
+// Ficha de solo lectura para el modo Ver
+function openInfoPopup(type, id, latlng) {
+  let title = '';
+  const rows = []; // [etiqueta, valor, esHtmlSeguro]
+
+  if (type === 'node') {
+    const n = nodes.find(x => x.id === id);
+    if (!n) return;
+    title = n.name;
+    rows.push(['Tipo', NODE_TYPE_LABELS[n.type] || n.type]);
+    if (n.type === 'building') {
+      rows.push(['Pisos', `${floorLabel(n.piso_min || 1)} a ${floorLabel(n.piso_max || 4)}`]);
+    } else {
+      rows.push(['Edificio', buildingName(n.building)]);
+      rows.push(['Piso', floorLabel(n.floor)]);
+    }
+    if (n.type !== 'waypoint' && n.type !== 'building' && n.type !== 'user') {
+      rows.push(['Horario', n.horario]);
+      rows.push(['Descripción', n.descripcion]);
+      if (n.link_derivacion) rows.push(['Link', safeLinkHtml(n.link_derivacion), true]);
+    }
+  } else if (type === 'edge') {
+    const e = edges.find(x => x.id === id);
+    if (!e) return;
+    const fn = nodes.find(x => x.id === e.from), tn = nodes.find(x => x.id === e.to);
+    if (!fn || !tn) return;
+    title = 'Conexión';
+    rows.push(['Desde', `${fn.name} (${floorLabel(fn.floor)})`]);
+    rows.push(['Hasta', `${tn.name} (${floorLabel(tn.floor)})`]);
+    rows.push(['Tipo', e.es_escalera ? 'Escalera' : 'Normal']);
+    rows.push(['Distancia', `${Math.round(map.distance(fn.latlng, tn.latlng))} m`]);
+  } else if (type === 'zone') {
+    const z = zones.find(x => x.id === id);
+    if (!z) return;
+    title = z.name;
+    rows.push(['Tipo', z.tags.includes('contorno_edificio') ? 'Contorno de edificio' : 'Zona segura']);
+    rows.push(['Edificio', buildingName(z.building)]);
+  }
+
+  const body = rows
+    .filter(([, v]) => v !== undefined && v !== null && v !== '')
+    .map(([k, v, isHtml]) => `<dt>${escapeHtml(k)}</dt><dd>${isHtml ? v : escapeHtml(v)}</dd>`)
+    .join('');
+  const html = `
+    <div class="pop-info">
+      <h6 style="margin-bottom:10px; font-weight:bold; color:var(--naviusm-text);">${escapeHtml(title)}</h6>
+      <dl>${body}</dl>
+    </div>`;
+  L.popup({ className: 'dark-popup', maxWidth: 280 }).setLatLng(latlng).setContent(html).openOn(map);
+}
 
 function centrarMapaEnSede() {
   const sedeId = document.getElementById('sede-selector')?.value;
@@ -94,7 +212,7 @@ function updateFloorSelector() {
   }
   for (let i = min; i <= max; i++) {
     const opt = document.createElement('option');
-    opt.value = i; opt.textContent = i === 0 ? 'Planta Baja (0)' : (i < 0 ? `Sub. ${Math.abs(i)}` : `Nivel ${i}`);
+    opt.value = i; opt.textContent = floorLabel(i);
     floorSel.appendChild(opt);
   }
   if (currentFloor < min || currentFloor > max) currentFloor = min;
@@ -189,6 +307,7 @@ async function publishToServer() {
 }
 
 async function loadFromServer() {
+  setMode('view'); // al cargar o cambiar de sede siempre se parte en modo Ver
   const sedeId = document.getElementById('sede-selector')?.value;
   if (!sedeId) return;
   setStatus('Cargando...', 'warn');
@@ -220,6 +339,7 @@ function setMode(m) {
   const isZoneMode = m === 'zonaseg' || m === 'edificio';
   if (wasZoneMode && mode !== m) cancelZoneDrawing();
   mode = m;
+  if (map) map.closePopup(); // un popup de edición no debe quedar abierto en otro modo
 
   document.querySelectorAll('.mmode').forEach(b => b.classList.remove('on'));
   document.getElementById('btn-' + m).classList.add('on');
@@ -232,6 +352,7 @@ function setMode(m) {
   if (!isZoneMode) {
     document.getElementById('node-creation-properties').style.display = m === 'add' ? 'block' : 'none';
     document.getElementById('edge-creation-properties').style.display = m === 'edge' ? 'block' : 'none';
+    document.getElementById('view-legend').style.display = m === 'view' ? 'block' : 'none';
   }
 
   const bldFilter = document.getElementById('field-building-filter');
@@ -243,6 +364,11 @@ function setMode(m) {
   }
 
   if (isZoneMode) openZonePanel(m);
+
+  const mapEl = document.getElementById('map');
+  mapEl.classList.remove(...MODES.map(x => 'mode-' + x));
+  mapEl.classList.add('mode-' + m);
+  applyMarkerDragging();
 }
 
 function setSystemType(el) {
@@ -432,6 +558,11 @@ window.saveZoneEdit = function (id) {
 };
 
 function onNodeClick(id, latlng) {
+  if (mode === 'view') {
+    openInfoPopup('node', id, latlng);
+    return;
+  }
+
   if (mode === 'delete') {
     const n = nodes.find(x => x.id === id);
     if (n.type === 'building') {
@@ -470,18 +601,22 @@ function addEdge(from, to) {
   const line = L.polyline([fNode.latlng, tNode.latlng], { color: color, weight: 3 }).addTo(map);
   const id = crypto.randomUUID();
 
-  line.on('click', (ev) => {
-    L.DomEvent.stopPropagation(ev);
-    if (mode === 'delete') {
-      line.removeFrom(map); edges = edges.filter(e => e.id !== id); hasUnsavedChanges = true;
-    } else {
-      openEditPopup('edge', id, ev.latlng);
-    }
-  });
+  line.on('click', (ev) => onEdgeClick(id, line, ev));
 
   edges.push({ id, from, to, weight: weight + penalty, es_escalera: isEscalera, line });
   hasUnsavedChanges = true;
   renderMapNodes();
+}
+
+function onEdgeClick(id, line, ev) {
+  L.DomEvent.stopPropagation(ev);
+  if (mode === 'delete') {
+    line.removeFrom(map); edges = edges.filter(e => e.id !== id); hasUnsavedChanges = true;
+  } else if (mode === 'view') {
+    openInfoPopup('edge', id, ev.latlng);
+  } else {
+    openEditPopup('edge', id, ev.latlng);
+  }
 }
 
 function cancelEdge() {
@@ -520,6 +655,9 @@ function cancelZoneDrawing() {
   drawingZoneVertexLayers = [];
   if (tempBldMarker) { tempBldMarker.removeFrom(map); tempBldMarker = null; }
   bldStep = 1;
+  tempBldNodeLatLng = null;
+  document.getElementById('bld-guide-step1').style.display = 'block';
+  document.getElementById('bld-guide-step2').style.display = 'none';
   document.getElementById('edificio-save-btn').disabled = true;
   document.getElementById('zonaseg-save-btn').disabled = true;
 }
@@ -550,7 +688,7 @@ function confirmZoneConfig(kind) {
     el.className = `graph-node type-building`;
     el.style.width = '30px'; el.style.height = '30px'; el.textContent = '🏛️';
 
-    const marker = L.marker(tempBldNodeLatLng, { icon: L.divIcon({ html: el, iconSize: [30, 30], className: '' }), draggable: true }).addTo(map);
+    const marker = L.marker(tempBldNodeLatLng, { icon: L.divIcon({ html: el, iconSize: [30, 30], className: '' }), draggable: mode === 'add' }).addTo(map);
     marker.bindTooltip(name, { permanent: false, direction: 'top' });
 
     marker.on('click', (ev) => { L.DomEvent.stopPropagation(ev); onNodeClick(nodeId, ev.latlng); });
@@ -640,6 +778,8 @@ function renderZone(zone) {
       } else {
         executeZoneDeletion(zone);
       }
+    } else if (mode === 'view') {
+      openInfoPopup('zone', zone.id, ev.latlng);
     } else {
       openEditPopup('zone', zone.id, ev.latlng);
     }
@@ -728,7 +868,7 @@ function loadGraph(data) {
     const sysType = SYSTEM_TYPES[n.type] || SYSTEM_TYPES['waypoint'];
     const el = document.createElement('div'); el.className = `graph-node type-${n.type}`;
     el.style.width = sysType.size + 'px'; el.style.height = sysType.size + 'px'; el.textContent = n.icon || sysType.icon;
-    const marker = L.marker([n.lat, n.lng], { icon: L.divIcon({ html: el, iconSize: [sysType.size, sysType.size], className: '' }), draggable: true });
+    const marker = L.marker([n.lat, n.lng], { icon: L.divIcon({ html: el, iconSize: [sysType.size, sysType.size], className: '' }), draggable: mode === 'add' });
     marker.bindTooltip(n.name, { permanent: false, direction: 'top' });
     const serviceProps = n.type !== 'waypoint' && n.type !== 'user' ? { horario: n.horario, descripcion: n.descripcion, link_derivacion: n.link_derivacion } : {};
     const node = { id: n.id, type: n.type, name: n.name, icon: n.icon, latlng: L.latLng(n.lat, n.lng), floor: n.floor, building: n.building || 'exterior', marker, el, ...serviceProps };
@@ -741,7 +881,7 @@ function loadGraph(data) {
     const fn = nodes.find(x => x.id === e.from), tn = nodes.find(x => x.id === e.to);
     if (!fn || !tn) return;
     const line = L.polyline([fn.latlng, tn.latlng], { color: e.es_escalera ? '#f5a623' : '#4a9eff', weight: 3 });
-    line.on('click', (ev) => { L.DomEvent.stopPropagation(ev); if (mode === 'delete') { line.removeFrom(map); edges = edges.filter(x => x.id !== e.id); hasUnsavedChanges = true; } else { openEditPopup('edge', e.id, ev.latlng); } });
+    line.on('click', (ev) => onEdgeClick(e.id, line, ev));
     edges.push({ id: e.id, from: e.from, to: e.to, weight: e.weight, es_escalera: e.es_escalera || false, line });
   });
 
