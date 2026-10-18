@@ -8,6 +8,7 @@ from fastapi.exception_handlers import http_exception_handler
 from app.api_keys.router import router as api_keys_router
 from app.auth.router import router as auth_router
 from app.config import settings
+from app.geocode.router import router as geocode_router
 from app.grafo.router import router as grafo_router
 from app.mobile.router import router as mobile_router
 from app.salas.router import router as salas_router
@@ -71,3 +72,4 @@ app.include_router(grafo_router, include_in_schema=False)
 app.include_router(zonas_router, include_in_schema=False)
 app.include_router(salas_router, include_in_schema=False)
 app.include_router(api_keys_router, include_in_schema=False)
+app.include_router(geocode_router, include_in_schema=False)

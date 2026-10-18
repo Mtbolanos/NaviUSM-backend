@@ -41,6 +41,11 @@
               <button class="btn btn-sm btn-primary shadow-sm" onclick="searchLocation()"
                 style="background:var(--naviusm-accent); color:black; border:none; font-weight:bold;">Buscar</button>
             </div>
+            <div class="form-check form-switch mt-1 d-inline-flex align-items-center gap-2"
+              style="background: var(--naviusm-surface); padding: 2px 10px 2px 2.6em; border-radius: 6px; font-size: 12px;">
+              <input class="form-check-input" type="checkbox" id="ns-solo-recintos" checked>
+              <label class="form-check-label" for="ns-solo-recintos">Solo recintos (sin calles ni direcciones)</label>
+            </div>
             <!-- Div de resultados de búsqueda -->
             <div id="ns-search-results" class="list-group shadow mt-1"
               style="display: none; max-height: 200px; overflow-y: auto;"></div>
@@ -76,5 +81,5 @@
     rootPath: "{{ request.scope.get('root_path', '') }}"
   };
 </script>
-<script src="{{ url_for('static', path='js/gestion_sedes.js') }}?v=0.3.3"></script>
+<script src="{{ url_for('static', path='js/gestion_sedes.js') }}?v=0.3.4"></script>
 {% endblock %}
