@@ -1,3 +1,4 @@
+from typing import Literal
 from cryptography.fernet import Fernet
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -14,6 +15,11 @@ class Settings(BaseSettings):
     secret_key: str
     cookie_secure: bool = False
     session_max_age: int = 86400
+
+    # API móvil
+    mobile_session_ttl: int = 3600               # duración del token de sesión de la app (segundos)
+    mobile_attestation: Literal["off"] = "off"   # futuro: "firebase" / "native" (App Attest + Play Integrity)
+    api_docs: bool = False                       # expone /docs y /redoc con la documentación de la API móvil
 
     @field_validator("secret_key")
     @classmethod

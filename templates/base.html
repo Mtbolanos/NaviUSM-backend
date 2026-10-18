@@ -12,7 +12,7 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap"
         rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', path='css/admin.css') }}?v=0.3.1">
+    <link rel="stylesheet" href="{{ url_for('static', path='css/admin.css') }}?v=0.4.2">
 </head>
 
 <body>
@@ -23,8 +23,7 @@
                     Mapa</a></li>
             <li class="nav-item"><a class="nav-link"
                     href="{{ request.scope.get('root_path', '') }}/admin/edificios">Gestión Edificios</a></li>
-            <li class="nav-item"><a class="nav-link" href="{{ request.scope.get('root_path', '') }}/admin/sedes">Gestión
-                    Sedes</a></li>
+            <li class="nav-item"><a class="nav-link" href="{{ request.scope.get('root_path', '') }}/admin/sedes">Gestión Sedes</a></li>
         </ul>
         <div class="ms-auto d-flex align-items-center">
             <div class="dropdown">
@@ -43,6 +42,7 @@
                     <li>
                         <hr class="dropdown-divider">
                     </li>
+                    <li><a class="dropdown-item" href="{{ request.scope.get('root_path', '') }}/admin/api-keys">API Keys</a></li>
                     <li><a class="dropdown-item"
                             href="{{ request.scope.get('root_path', '') }}/cambiar-contrasena">Cambiar
                             Contraseña</a></li>
@@ -75,6 +75,8 @@
     </div>
     <script>
         window.createDynamicModal = function (message, title, showCancel) {
+            // Título y mensaje pueden incluir nombres ingresados por usuarios: se escapan antes de insertarlos como HTML
+            const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
             return new Promise((resolve) => {
                 const modalId = 'ui-modal-' + Math.random().toString(36).substring(2, 10);
                 const html = `
@@ -82,10 +84,10 @@
                     <div class="modal-dialog modal-dialog-centered modal-sm">
                         <div class="modal-content" style="background: var(--naviusm-surface); border: 1px solid var(--naviusm-border);">
                             <div class="modal-header border-0 pb-0">
-                                <h6 class="modal-title fw-bold">${title}</h6>
+                                <h6 class="modal-title fw-bold">${esc(title)}</h6>
                             </div>
                             <div class="modal-body pb-0" style="font-size: 13px; color: var(--naviusm-text);">
-                                ${message.replace(/\n/g, '<br>')}
+                                ${esc(message).replace(/\n/g, '<br>')}
                             </div>
                             <div class="modal-footer border-0 pt-3">
                                 ${showCancel ? `<button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>` : ''}

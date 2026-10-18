@@ -84,6 +84,19 @@ class Sala(Base):
     piso = Column(Integer, nullable=False)
     nombre = Column(String(255), nullable=False)
 
+class ApiKey(Base):
+    __tablename__ = "api_key"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
+    organizacion_id = Column(UUID(as_uuid=True), ForeignKey("organizacion.id", ondelete="CASCADE"), nullable=False, index=True)
+    nombre = Column(String(255), nullable=False)
+    prefijo = Column(String(16), nullable=False)
+    key_hash = Column(String(64), unique=True, nullable=False)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("usuario.id", ondelete="SET NULL"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    expires_at = Column(DateTime(timezone=True))
+    last_used_at = Column(DateTime(timezone=True))
+    revoked_at = Column(DateTime(timezone=True))
 
 class Caracteristica(Base):
     __tablename__ = "caracteristica"

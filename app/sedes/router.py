@@ -55,35 +55,3 @@ def delete_sede_endpoint(
     if not found:
         raise HTTPException(404, "Sede no encontrada")
     return {"success": True}
-
-@router.get("/api/v1/public/organizaciones", tags=["Público Mobile"])
-def get_public_organizaciones(db: Session = Depends(get_db)):
-    """
-    Lista las instituciones/universidades disponibles junto a sus sedes
-    para el selector dinámico de la aplicación móvil.
-    """
-    organizaciones = db.query(Organizacion).all()
-    resultado = []
-
-    for org in organizaciones:
-        sedes_lista = [
-            {
-                "uuid": str(s.id),
-                "nombre": s.nombre,
-                "lat": float(s.latitud) if s.latitud is not None else -33.0360,
-                "lng": float(s.longitud) if s.longitud is not None else -71.4860,
-                "zoom": s.zoom_defecto or 17,
-            }
-            for s in org.sedes
-        ]
-
-        # Solo incluir universidades que ya tengan al menos una sede configurada
-        if sedes_lista:
-            resultado.append({
-                "id": str(org.id),
-                "slug": org.slug,
-                "nombre": org.nombre,
-                "sedes": sedes_lista,
-            })
-
-    return resultado

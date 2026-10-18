@@ -25,6 +25,8 @@ def upsert_zonas(db: Session, sede, payload_zonas: list, org_id) -> None:
                     nombre = EXCLUDED.nombre,
                     geom = EXCLUDED.geom,
                     color_hex = EXCLUDED.color_hex
+                WHERE zona.organizacion_id = EXCLUDED.organizacion_id 
+                AND zona.sede_id = EXCLUDED.sede_id
             """),
             {
                 "id": z["id"], "sede": sede.id, "org": org_id,
