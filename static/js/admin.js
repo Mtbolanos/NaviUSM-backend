@@ -430,6 +430,7 @@ function setSystemType(el) {
 }
 
 function onMapClick(e) {
+  if (editingZoneId) { insertVertexIntoEditingZone(e.latlng); return; }
   if (mode === 'edificio') {
     if (bldStep === 1) {
       tempBldNodeLatLng = e.latlng;
@@ -675,17 +676,38 @@ function cancelEdge() {
   edgeFrom = null;
 }
 
-function addZoneVertex(latlng) {
-  const idx = drawingZonePoints.length;
-  drawingZonePoints.push([latlng.lat, latlng.lng]);
+// Marcador de vértice reutilizable: arrastrable, sin propagar el clic al mapa y con clic derecho para quitarlo
+function makeVertexMarker(latlng, { onDrag, onRemove }) {
   const marker = L.marker(latlng, { draggable: true, icon: L.divIcon({ className: 'zone-vertex', iconSize: [12, 12] }) }).addTo(map);
-  marker.on('drag', () => {
-    const ll = marker.getLatLng();
-    drawingZonePoints[idx] = [ll.lat, ll.lng];
-    redrawZonePreviewShape();
+  marker.on('drag', onDrag);
+  // Sin esto, un clic sobre un vértice llega también al mapa y crea otro punto encima
+  marker.on('click', (ev) => L.DomEvent.stopPropagation(ev));
+  marker.on('contextmenu', (ev) => {
+    L.DomEvent.stopPropagation(ev);
+    L.DomEvent.preventDefault(ev.originalEvent);
+    onRemove(marker);
+  });
+  return marker;
+}
+
+// Los puntos de la zona en dibujo se derivan del orden de los marcadores:
+// así, quitar un vértice no desordena los demás
+function syncDrawingPointsFromMarkers() {
+  drawingZonePoints = drawingZoneVertexLayers.map(m => { const ll = m.getLatLng(); return [ll.lat, ll.lng]; });
+  redrawZonePreviewShape();
+}
+
+function addZoneVertex(latlng) {
+  const marker = makeVertexMarker(latlng, {
+    onDrag: syncDrawingPointsFromMarkers,
+    onRemove: (m) => {
+      m.removeFrom(map);
+      drawingZoneVertexLayers.splice(drawingZoneVertexLayers.indexOf(m), 1);
+      syncDrawingPointsFromMarkers();
+    },
   });
   drawingZoneVertexLayers.push(marker);
-  redrawZonePreviewShape();
+  syncDrawingPointsFromMarkers();
 }
 
 function redrawZonePreviewShape() {
@@ -770,32 +792,50 @@ function confirmZoneConfig(kind) {
 }
 
 function enableZoneVertexEditing(id) {
+  cancelZoneDrawing(); // descarta un dibujo a medias y limpia los vértices anteriores
   editingZoneId = id;
   const zone = zones.find(z => z.id === id);
-  drawingZoneVertexLayers.forEach(m => m.removeFrom(map));
-  drawingZoneVertexLayers = [];
-
   zone.polygon.setStyle({ weight: 4, color: '#22d07a', dashArray: '5, 5' });
-
-  const coords = zone.geojson.coordinates[0].slice(0, -1);
-  coords.forEach((coord, idx) => {
-    const latlng = [coord[1], coord[0]];
-    const marker = L.marker(latlng, { draggable: true, icon: L.divIcon({ className: 'zone-vertex', iconSize: [12, 12] }) }).addTo(map);
-
-    marker.on('drag', () => {
-      const ll = marker.getLatLng();
-      zone.geojson.coordinates[0][idx] = [ll.lng, ll.lat];
-      if (idx === 0) zone.geojson.coordinates[0][coords.length] = [ll.lng, ll.lat];
-      const leafletCoords = zone.geojson.coordinates[0].map(c => [c[1], c[0]]);
-
-      zone.polygon.eachLayer(layer => {
-        layer.setLatLngs(leafletCoords);
-      });
-      markDirty();
-    });
-    drawingZoneVertexLayers.push(marker);
+  zone.geojson.coordinates[0].slice(0, -1).forEach(([lng, lat]) => {
+    drawingZoneVertexLayers.push(makeEditVertexMarker(zone, L.latLng(lat, lng)));
   });
   document.getElementById('vertex-edit-toolbar').style.display = 'flex';
+}
+
+function makeEditVertexMarker(zone, latlng) {
+  return makeVertexMarker(latlng, {
+    onDrag: () => syncEditingZoneFromMarkers(zone),
+    onRemove: (m) => {
+      if (drawingZoneVertexLayers.length <= 3) { setStatus('El contorno necesita al menos 3 puntos', 'warn'); return; }
+      m.removeFrom(map);
+      drawingZoneVertexLayers.splice(drawingZoneVertexLayers.indexOf(m), 1);
+      syncEditingZoneFromMarkers(zone);
+    },
+  });
+}
+
+// El anillo del polígono se reconstruye desde los marcadores, en su orden
+function syncEditingZoneFromMarkers(zone) {
+  const ring = drawingZoneVertexLayers.map(m => { const ll = m.getLatLng(); return [ll.lng, ll.lat]; });
+  zone.geojson.coordinates[0] = [...ring, ring[0]];
+  const leafletCoords = ring.map(([lng, lat]) => [lat, lng]);
+  zone.polygon.eachLayer(layer => layer.setLatLngs(leafletCoords));
+  markDirty();
+}
+
+// Inserta el punto en el lado del polígono más cercano al clic (distancia medida en píxeles de pantalla)
+function insertVertexIntoEditingZone(latlng) {
+  const zone = zones.find(z => z.id === editingZoneId);
+  if (!zone) return;
+  const p = map.latLngToLayerPoint(latlng);
+  const pts = drawingZoneVertexLayers.map(m => map.latLngToLayerPoint(m.getLatLng()));
+  let bestIdx = 0, bestDist = Infinity;
+  for (let i = 0; i < pts.length; i++) {
+    const d = L.LineUtil.pointToSegmentDistance(p, pts[i], pts[(i + 1) % pts.length]);
+    if (d < bestDist) { bestDist = d; bestIdx = i; }
+  }
+  drawingZoneVertexLayers.splice(bestIdx + 1, 0, makeEditVertexMarker(zone, latlng));
+  syncEditingZoneFromMarkers(zone);
 }
 
 window.finishVertexEditing = function () {
@@ -818,6 +858,7 @@ function renderZone(zone) {
   const base = zone.color || colorForZone(zone);
   zone.polygon = L.geoJSON(zone.geojson, { style: { color: shadeColor(base, -0.25), fillColor: shadeColor(base, 0.45), fillOpacity: 0.45, weight: 2 } }).addTo(map);
   zone.polygon.on('click', (ev) => {
+    if (editingZoneId) { L.DomEvent.stopPropagation(ev); insertVertexIntoEditingZone(ev.latlng); return; }
     if (mode === 'add' || mode === 'edge') { map.fire('click', ev); return; }
     L.DomEvent.stopPropagation(ev);
     if (mode === 'delete') {
