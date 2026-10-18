@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     mobile_attestation: Literal["off"] = "off"   # futuro: "firebase" / "native" (App Attest + Play Integrity)
     api_docs: bool = False                       # expone /docs y /redoc con la documentación de la API móvil
 
+    # Buscador de lugares (Photon, datos de OpenStreetMap). GEOCODER_URL permite apuntar a una instancia propia
+    geocoder_url: str = "https://photon.komoot.io/api/"
+    geocoder_country: str = "CL"
+    geocoder_user_agent: str = "NaviUSM/1.0"
+    
     @field_validator("secret_key")
     @classmethod
     def validar_fernet_key(cls, v: str) -> str:
