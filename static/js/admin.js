@@ -22,6 +22,7 @@ let tempBldNodeLatLng = null;
 let originalNodes = new Set();
 let originalBuildings = new Set();
 let editingZoneId = null;
+let editingZoneBackup = null; // copia del contorno al empezar a editar, para poder cancelar
 let activePopup = null; // popup abierto según los eventos de Leaflet (el DOM tarda ~200 ms en desaparecer)
 
 let currentSedeId = null; // sede cargada; para revertir el selector si se cancela el cambio
@@ -105,7 +106,7 @@ function onKeyDown(ev) {
 // Esc deshace un nivel por vez: popup → edición de vértices → dibujo en curso → arista a medias → modo Ver
 function handleEscape() {
   if (activePopup) { map.closePopup(); return; }
-  if (document.getElementById('vertex-edit-toolbar').style.display !== 'none') { finishVertexEditing(); return; }
+  if (document.getElementById('vertex-edit-toolbar').style.display !== 'none') { cancelVertexEditing(); return; }
   if ((mode === 'zonaseg' || mode === 'edificio') && (drawingZonePoints.length > 0 || tempBldMarker)) { cancelZoneDrawing(); return; }
   if (mode === 'edge' && edgeFrom) { cancelEdge(); return; }
   if (mode !== 'view') setMode('view');
@@ -534,9 +535,10 @@ function openEditPopup(type, id, latlng) {
           <button class="btn btn-sm btn-success" style="background:var(--naviusm-green); border:none;" onclick="saveNodeEdit('${id}')">Guardar</button>
         </div>
       </div>
-    `; } else if (type === 'edge') {
-      const e = edges.find(x => x.id === id);
-      html = `
+    `;
+  } else if (type === 'edge') {
+    const e = edges.find(x => x.id === id);
+    html = `
       <div class="pop-edit">
         <h6 style="margin-bottom:10px; font-weight:bold; color:var(--naviusm-text);">Editar Conexión</h6>
         <label class="d-flex align-items-center gap-2 text-white" style="cursor:pointer; text-transform:none;">
@@ -549,9 +551,9 @@ function openEditPopup(type, id, latlng) {
         </div>
       </div>
     `;
-    } else if (type === 'zone') {
-      const z = zones.find(x => x.id === id);
-      html = `
+  } else if (type === 'zone') {
+    const z = zones.find(x => x.id === id);
+    html = `
       <div class="pop-edit">
         <h6 style="margin-bottom:10px; font-weight:bold; color:var(--naviusm-text);">Editar Zona / Edificio</h6>
         <label>Nombre</label>
@@ -563,577 +565,597 @@ function openEditPopup(type, id, latlng) {
         </div>
       </div>
     `;
-    }
-    L.popup({ className: 'dark-popup' }).setLatLng(latlng).setContent(html).openOn(map);
   }
+  L.popup({ className: 'dark-popup' }).setLatLng(latlng).setContent(html).openOn(map);
+}
 
-  // Al cambiar el tipo en el popup: mostrar u ocultar los campos de POI y proponer el ícono del nuevo tipo
-  window.onPopTypeChange = function (sel) {
-    const isPoi = sel.value !== 'waypoint' && sel.value !== 'user';
-    document.getElementById('pop-srv-fields').style.display = isPoi ? 'block' : 'none';
-    const iconInp = document.getElementById('pop-icon');
-    const prevDefault = SYSTEM_TYPES[sel.dataset.prev]?.icon;
-    // Solo se reemplaza si estaba vacío o era el ícono por defecto del tipo anterior (respeta emojis personalizados)
-    if (!iconInp.value.trim() || iconInp.value === prevDefault) iconInp.value = SYSTEM_TYPES[sel.value]?.icon || '';
-    sel.dataset.prev = sel.value;
+// Al cambiar el tipo en el popup: mostrar u ocultar los campos de POI y proponer el ícono del nuevo tipo
+window.onPopTypeChange = function (sel) {
+  const isPoi = sel.value !== 'waypoint' && sel.value !== 'user';
+  document.getElementById('pop-srv-fields').style.display = isPoi ? 'block' : 'none';
+  const iconInp = document.getElementById('pop-icon');
+  const prevDefault = SYSTEM_TYPES[sel.dataset.prev]?.icon;
+  // Solo se reemplaza si estaba vacío o era el ícono por defecto del tipo anterior (respeta emojis personalizados)
+  if (!iconInp.value.trim() || iconInp.value === prevDefault) iconInp.value = SYSTEM_TYPES[sel.value]?.icon || '';
+  sel.dataset.prev = sel.value;
+};
+
+function setNodeType(n, newType) {
+  const sys = SYSTEM_TYPES[newType] || SYSTEM_TYPES.waypoint;
+  n.type = newType;
+  n.el.className = `graph-node type-${newType}`;
+  n.el.style.width = sys.size + 'px'; n.el.style.height = sys.size + 'px';
+  // Cambia el tamaño del ícono; Leaflet recrea el elemento y conserva el estado de arrastre
+  n.marker.setIcon(L.divIcon({ html: n.el, iconSize: [sys.size, sys.size], className: '' }));
+}
+
+window.saveNodeEdit = async function (id) {
+  const n = nodes.find(x => x.id === id);
+  const val = (elId) => document.getElementById(elId)?.value;
+  // Leer el formulario antes de cualquier diálogo
+  const form = {
+    type: val('pop-type') || n.type,
+    name: val('pop-name'),
+    building: val('pop-building'),
+    icon: (val('pop-icon') || '').trim(),
+    horario: val('pop-horario'),
+    descripcion: val('pop-desc'),
+    link: val('pop-link'),
   };
+  const isPoi = form.type !== 'waypoint' && form.type !== 'user';
 
-  function setNodeType(n, newType) {
-    const sys = SYSTEM_TYPES[newType] || SYSTEM_TYPES.waypoint;
-    n.type = newType;
-    n.el.className = `graph-node type-${newType}`;
-    n.el.style.width = sys.size + 'px'; n.el.style.height = sys.size + 'px';
-    // Cambia el tamaño del ícono; Leaflet recrea el elemento y conserva el estado de arrastre
-    n.marker.setIcon(L.divIcon({ html: n.el, iconSize: [sys.size, sys.size], className: '' }));
+  if (!isPoi && n.type !== form.type && (n.horario || n.descripcion || n.link_derivacion)) {
+    const ok = await window.uiConfirm(
+      "Al convertirlo en Punto de Ruta se descartarán el horario, la descripción y el link.\n¿Continuar?",
+      "Cambiar tipo de nodo");
+    if (!ok) return;
   }
 
-  window.saveNodeEdit = async function (id) {
-    const n = nodes.find(x => x.id === id);
-    const val = (elId) => document.getElementById(elId)?.value;
-    // Leer el formulario antes de cualquier diálogo
-    const form = {
-      type: val('pop-type') || n.type,
-      name: val('pop-name'),
-      building: val('pop-building'),
-      icon: (val('pop-icon') || '').trim(),
-      horario: val('pop-horario'),
-      descripcion: val('pop-desc'),
-      link: val('pop-link'),
-    };
-    const isPoi = form.type !== 'waypoint' && form.type !== 'user';
+  n.name = form.name;
+  if (n.type !== 'building' && form.building !== undefined) n.building = form.building;
+  if (form.type !== n.type) setNodeType(n, form.type);
 
-    if (!isPoi && n.type !== form.type && (n.horario || n.descripcion || n.link_derivacion)) {
-      const ok = await window.uiConfirm(
-        "Al convertirlo en Punto de Ruta se descartarán el horario, la descripción y el link.\n¿Continuar?",
-        "Cambiar tipo de nodo");
-      if (!ok) return;
-    }
-
-    n.name = form.name;
-    if (n.type !== 'building' && form.building !== undefined) n.building = form.building;
-    if (form.type !== n.type) setNodeType(n, form.type);
-
-    if (isPoi) {
-      n.icon = form.icon || SYSTEM_TYPES[n.type]?.icon || '';
-      n.horario = form.horario;
-      n.descripcion = form.descripcion;
-      n.link_derivacion = form.link;
-    } else {
-      n.icon = SYSTEM_TYPES.waypoint.icon;
-      delete n.horario; delete n.descripcion; delete n.link_derivacion;
-    }
-    n.el.textContent = n.icon;
-
-    setNodeTooltip(n.marker, n.name);
-    if (n.type === 'building') {
-      const z = zones.find(z => z.building === id);
-      if (z) z.name = n.name;
-      updateBuildingSelector();
-    }
-    map.closePopup();
-    markDirty();
-  };
-
-  window.saveEdgeEdit = function (id) {
-    const e = edges.find(x => x.id === id);
-    e.es_escalera = document.getElementById('pop-es-escalera').checked;
-    e.line.setStyle({ color: e.es_escalera ? '#f5a623' : '#4a9eff' });
-    map.closePopup();
-    markDirty();
-  };
-
-  window.saveZoneEdit = function (id) {
-    const z = zones.find(x => x.id === id);
-    z.name = document.getElementById('pop-zone-name').value;
-    if (z.building) {
-      const n = nodes.find(n => n.id === z.building);
-      if (n) {
-        n.name = z.name;
-        setNodeTooltip(n.marker, n.name);
-      }
-      updateBuildingSelector();
-    }
-    map.closePopup();
-    markDirty();
-  };
-
-  function onNodeClick(id, latlng) {
-    if (mode === 'view') {
-      openInfoPopup('node', id, latlng);
-      return;
-    }
-
-    if (mode === 'delete') {
-      const n = nodes.find(x => x.id === id);
-      if (n.type === 'building') {
-        attemptDeleteBuilding(id);
-      } else {
-        recordDeletion(() => executeNodeDeletion(id));
-      }
-      return;
-    }
-
-    if (mode === 'edge') {
-      if (!edgeFrom) {
-        edgeFrom = id;
-        nodes.find(n => n.id === id).el.style.boxShadow = "0 0 0 4px rgba(74, 158, 255, 0.8)";
-      } else {
-        if (edgeFrom !== id) addEdge(edgeFrom, id);
-        cancelEdge();
-      }
-      return;
-    }
-
-    if (mode === 'add' || mode === 'zonaseg' || mode === 'edificio') {
-      openEditPopup('node', id, latlng);
-    }
+  if (isPoi) {
+    n.icon = form.icon || SYSTEM_TYPES[n.type]?.icon || '';
+    n.horario = form.horario;
+    n.descripcion = form.descripcion;
+    n.link_derivacion = form.link;
+  } else {
+    n.icon = SYSTEM_TYPES.waypoint.icon;
+    delete n.horario; delete n.descripcion; delete n.link_derivacion;
   }
+  n.el.textContent = n.icon;
 
-  function addEdge(from, to) {
-    if (edges.some(e => (e.from === from && e.to === to) || (e.from === to && e.to === from))) return;
-
-    const fNode = nodes.find(n => n.id === from), tNode = nodes.find(n => n.id === to);
-    const weight = map.distance(fNode.latlng, tNode.latlng);
-    const penalty = Math.abs(fNode.floor - tNode.floor) * 15;
-    const isEscalera = document.getElementById('edge-escalera-input')?.checked || false;
-    const color = isEscalera ? '#f5a623' : '#4a9eff';
-
-    const line = L.polyline([fNode.latlng, tNode.latlng], { color: color, weight: 3 }).addTo(map);
-    const id = crypto.randomUUID();
-
-    line.on('click', (ev) => onEdgeClick(id, line, ev));
-
-    edges.push({ id, from, to, weight: weight + penalty, es_escalera: isEscalera, line });
-    markDirty();
-    renderMapNodes();
-  }
-
-  function onEdgeClick(id, line, ev) {
-    L.DomEvent.stopPropagation(ev);
-    if (mode === 'delete') {
-      recordDeletion(() => executeEdgeDeletion(id));
-    } else if (mode === 'view') {
-      openInfoPopup('edge', id, ev.latlng);
-    } else {
-      openEditPopup('edge', id, ev.latlng);
-    }
-  }
-
-  function cancelEdge() {
-    if (edgeFrom) {
-      const n = nodes.find(x => x.id === edgeFrom);
-      if (n) n.el.style.boxShadow = "0 2px 8px rgba(0, 0, 0, 0.5)";
-    }
-    edgeFrom = null;
-  }
-
-  // Marcador de vértice reutilizable: arrastrable, sin propagar el clic al mapa y con clic derecho para quitarlo
-  function makeVertexMarker(latlng, { onDrag, onRemove }) {
-    const marker = L.marker(latlng, { draggable: true, icon: L.divIcon({ className: 'zone-vertex', iconSize: [12, 12] }) }).addTo(map);
-    marker.on('drag', onDrag);
-    // Sin esto, un clic sobre un vértice llega también al mapa y crea otro punto encima
-    marker.on('click', (ev) => L.DomEvent.stopPropagation(ev));
-    marker.on('contextmenu', (ev) => {
-      L.DomEvent.stopPropagation(ev);
-      L.DomEvent.preventDefault(ev.originalEvent);
-      onRemove(marker);
-    });
-    return marker;
-  }
-
-  // Los puntos de la zona en dibujo se derivan del orden de los marcadores:
-  // así, quitar un vértice no desordena los demás
-  function syncDrawingPointsFromMarkers() {
-    drawingZonePoints = drawingZoneVertexLayers.map(m => { const ll = m.getLatLng(); return [ll.lat, ll.lng]; });
-    redrawZonePreviewShape();
-  }
-
-  function addZoneVertex(latlng) {
-    const marker = makeVertexMarker(latlng, {
-      onDrag: syncDrawingPointsFromMarkers,
-      onRemove: (m) => {
-        m.removeFrom(map);
-        drawingZoneVertexLayers.splice(drawingZoneVertexLayers.indexOf(m), 1);
-        syncDrawingPointsFromMarkers();
-      },
-    });
-    drawingZoneVertexLayers.push(marker);
-    syncDrawingPointsFromMarkers();
-  }
-
-  function redrawZonePreviewShape() {
-    if (drawingZonePreviewLayer) { drawingZonePreviewLayer.removeFrom(map); drawingZonePreviewLayer = null; }
-    if (drawingZonePoints.length === 2) drawingZonePreviewLayer = L.polyline(drawingZonePoints, { color: '#333', dashArray: '4,4' }).addTo(map);
-    else if (drawingZonePoints.length >= 3) drawingZonePreviewLayer = L.polygon(drawingZonePoints, { color: '#333', dashArray: '4,4', fillOpacity: 0.1 }).addTo(map);
-    const btnSave = document.getElementById(mode + '-save-btn');
-    if (btnSave) btnSave.disabled = drawingZonePoints.length < 3;
-  }
-
-  function cancelZoneDrawing() {
-    drawingZonePoints = [];
-    if (drawingZonePreviewLayer) { drawingZonePreviewLayer.removeFrom(map); drawingZonePreviewLayer = null; }
-    drawingZoneVertexLayers.forEach(m => m.removeFrom(map));
-    drawingZoneVertexLayers = [];
-    if (tempBldMarker) { tempBldMarker.removeFrom(map); tempBldMarker = null; }
-    bldStep = 1;
-    tempBldNodeLatLng = null;
-    document.getElementById('bld-guide-step1').style.display = 'block';
-    document.getElementById('bld-guide-step2').style.display = 'none';
-    document.getElementById('edificio-save-btn').disabled = true;
-    document.getElementById('zonaseg-save-btn').disabled = true;
-  }
-
-  function populateZoneBuildingSelect(kind) {
-    const sel = document.getElementById(kind + '-building-select');
-    if (!sel) return;
-    sel.innerHTML = '<option value="exterior">Exterior / Campus</option>' +
-      nodes.filter(n => n.type === 'building').map(b => `<option value="${escapeHtml(b.id)}">${escapeHtml(b.name)}</option>`).join('');
-  }
-
-  function openZonePanel(kind) {
-    cancelZoneDrawing();
-    document.getElementById(kind + '-name-input').value = '';
-    populateZoneBuildingSelect(kind);
-    if (kind === 'edificio') {
-      document.getElementById('bld-guide-step1').style.display = 'block';
-      document.getElementById('bld-guide-step2').style.display = 'none';
-    }
-  }
-
-  function confirmZoneConfig(kind) {
-    const name = document.getElementById(kind + '-name-input').value.trim() || 'Sin nombre';
-
-    if (kind === 'edificio' && drawingZonePoints.length >= 3 && tempBldNodeLatLng) {
-      const nodeId = crypto.randomUUID();
-      const el = document.createElement('div');
-      el.className = `graph-node type-building`;
-      el.style.width = '30px'; el.style.height = '30px'; el.textContent = '🏛️';
-
-      const marker = L.marker(tempBldNodeLatLng, { icon: L.divIcon({ html: el, iconSize: [30, 30], className: '' }), draggable: mode === 'add' }).addTo(map);
-      setNodeTooltip(marker, name);
-
-      marker.on('click', (ev) => { L.DomEvent.stopPropagation(ev); onNodeClick(nodeId, ev.latlng); });
-      marker.on('dragend', () => { node.latlng = marker.getLatLng(); rebuildLines(); markDirty(); });
-
-      const node = { id: nodeId, type: 'building', name: name, icon: '🏛️', latlng: tempBldNodeLatLng, floor: currentFloor, building: 'exterior', marker, el, piso_min: 1, piso_max: 4 };
-      nodes.push(node);
-
-      const shapePoints = drawingZonePoints;
-      const geojson = { type: 'Polygon', coordinates: [[...shapePoints, shapePoints[0]].map(([lat, lng]) => [lng, lat])] };
-      const zone = { id: crypto.randomUUID(), building: nodeId, name, tags: ['contorno_edificio'], color: '#3b6e8f', geojson, polygon: null };
-      zones.push(zone);
-      renderZone(zone);
-
-      if (tempBldMarker) { tempBldMarker.removeFrom(map); tempBldMarker = null; }
-      updateBuildingSelector();
-      bldStep = 1; tempBldNodeLatLng = null;
-      document.getElementById('bld-guide-step1').style.display = 'block';
-      document.getElementById('bld-guide-step2').style.display = 'none';
-
-    } else if (kind === 'zonaseg') {
-      const buildingVal = document.getElementById(kind + '-building-select').value;
-      const shapePoints = drawingZonePoints;
-      const geojson = { type: 'Polygon', coordinates: [[...shapePoints, shapePoints[0]].map(([lat, lng]) => [lng, lat])] };
-      const zone = { id: crypto.randomUUID(), building: buildingVal === 'exterior' ? null : buildingVal, name, tags: ['zona_segura'], color: '#1f7a5c', geojson, polygon: null };
-      zones.push(zone);
-      renderZone(zone);
-    }
-    markDirty();
-    openZonePanel(kind);
-  }
-
-  function enableZoneVertexEditing(id) {
-    cancelZoneDrawing(); // descarta un dibujo a medias y limpia los vértices anteriores
-    editingZoneId = id;
-    const zone = zones.find(z => z.id === id);
-    zone.polygon.setStyle({ weight: 4, color: '#22d07a', dashArray: '5, 5' });
-    zone.geojson.coordinates[0].slice(0, -1).forEach(([lng, lat]) => {
-      drawingZoneVertexLayers.push(makeEditVertexMarker(zone, L.latLng(lat, lng)));
-    });
-    document.getElementById('vertex-edit-toolbar').style.display = 'flex';
-  }
-
-  function makeEditVertexMarker(zone, latlng) {
-    return makeVertexMarker(latlng, {
-      onDrag: () => syncEditingZoneFromMarkers(zone),
-      onRemove: (m) => {
-        if (drawingZoneVertexLayers.length <= 3) { setStatus('El contorno necesita al menos 3 puntos', 'warn'); return; }
-        m.removeFrom(map);
-        drawingZoneVertexLayers.splice(drawingZoneVertexLayers.indexOf(m), 1);
-        syncEditingZoneFromMarkers(zone);
-      },
-    });
-  }
-
-  // El anillo del polígono se reconstruye desde los marcadores, en su orden
-  function syncEditingZoneFromMarkers(zone) {
-    const ring = drawingZoneVertexLayers.map(m => { const ll = m.getLatLng(); return [ll.lng, ll.lat]; });
-    zone.geojson.coordinates[0] = [...ring, ring[0]];
-    const leafletCoords = ring.map(([lng, lat]) => [lat, lng]);
-    zone.polygon.eachLayer(layer => layer.setLatLngs(leafletCoords));
-    markDirty();
-  }
-
-  // Inserta el punto en el lado del polígono más cercano al clic (distancia medida en píxeles de pantalla)
-  function insertVertexIntoEditingZone(latlng) {
-    const zone = zones.find(z => z.id === editingZoneId);
-    if (!zone) return;
-    const p = map.latLngToLayerPoint(latlng);
-    const pts = drawingZoneVertexLayers.map(m => map.latLngToLayerPoint(m.getLatLng()));
-    let bestIdx = 0, bestDist = Infinity;
-    for (let i = 0; i < pts.length; i++) {
-      const d = L.LineUtil.pointToSegmentDistance(p, pts[i], pts[(i + 1) % pts.length]);
-      if (d < bestDist) { bestDist = d; bestIdx = i; }
-    }
-    drawingZoneVertexLayers.splice(bestIdx + 1, 0, makeEditVertexMarker(zone, latlng));
-    syncEditingZoneFromMarkers(zone);
-  }
-
-  window.finishVertexEditing = function () {
-    drawingZoneVertexLayers.forEach(m => m.removeFrom(map));
-    drawingZoneVertexLayers = [];
-    document.getElementById('vertex-edit-toolbar').style.display = 'none';
-
-    if (editingZoneId) {
-      const zone = zones.find(z => z.id === editingZoneId);
-      if (zone) {
-        const base = zone.color || colorForZone(zone);
-        zone.polygon.setStyle({ weight: 2, color: shadeColor(base, -0.25), dashArray: null });
-      }
-      editingZoneId = null;
-    }
-    setStatus('Contorno modificado', 'warn');
-  }
-
-  function renderZone(zone) {
-    const base = zone.color || colorForZone(zone);
-    zone.polygon = L.geoJSON(zone.geojson, { style: { color: shadeColor(base, -0.25), fillColor: shadeColor(base, 0.45), fillOpacity: 0.45, weight: 2 } }).addTo(map);
-    zone.polygon.on('click', (ev) => {
-      if (editingZoneId) { L.DomEvent.stopPropagation(ev); insertVertexIntoEditingZone(ev.latlng); return; }
-      if (mode === 'add' || mode === 'edge') { map.fire('click', ev); return; }
-      L.DomEvent.stopPropagation(ev);
-      if (mode === 'delete') {
-        if (zone.building) {
-          attemptDeleteBuilding(zone.building, zone);
-        } else {
-          recordDeletion(() => executeZoneDeletion(zone));
-        }
-      } else if (mode === 'view') {
-        openInfoPopup('zone', zone.id, ev.latlng);
-      } else {
-        openEditPopup('zone', zone.id, ev.latlng);
-      }
-    });
-  }
-
-  function shadeColor(hex, p) {
-    const num = parseInt(hex.replace('#', ''), 16);
-    const blend = (c) => Math.round(p > 0 ? c + (255 - c) * p : c + c * p);
-    return '#' + [blend((num >> 16) & 0xFF), blend((num >> 8) & 0xFF), blend(num & 0xFF)].map(c => Math.min(255, Math.max(0, c)).toString(16).padStart(2, '0')).join('');
-  }
-  function colorForZone(zone) {
-    const k = Object.values(ZONE_KINDS).find(k => zone.tags.includes(k.tag)); return k ? k.color : '#888888';
-  }
-
-  function rebuildLines() {
-    edges.forEach(e => {
-      const fn = nodes.find(n => n.id === e.from), tn = nodes.find(n => n.id === e.to);
-      e.line.setLatLngs([fn.latlng, tn.latlng]);
-    });
-  }
-
-  function loadGraph(data) {
-    if (data.nodes) {
-      const uniqueNodes = [];
-      const seenCoords = new Set();
-      data.nodes.forEach(n => {
-        const key = `${n.lat.toFixed(6)},${n.lng.toFixed(6)},${n.floor},${n.type}`;
-        if (!seenCoords.has(key)) {
-          seenCoords.add(key);
-          uniqueNodes.push(n);
-        }
-      });
-      data.nodes = uniqueNodes;
-    }
-
-    originalNodes = new Set((data.nodes || []).filter(n => n.type !== 'waypoint' && n.type !== 'building' && n.type !== 'user').map(n => n.id));
-    originalBuildings = new Set((data.buildings || []).filter(b => b.id !== 'exterior').map(b => b.id));
-
-    nodes.forEach(n => n.marker.removeFrom(map));
-    zones.forEach(z => z.polygon && z.polygon.removeFrom(map));
-    nodes = []; edges = []; zones = [];
-    undoStack = [];
-    if (!data.nodes || !data.edges) return;
-    const idMap = {}; const isUUID = (str) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(str);
-
-    data.buildings = (data.buildings || []).map(b => {
-      if (b.id !== 'exterior' && !isUUID(b.id)) { const newId = crypto.randomUUID(); idMap[b.id] = newId; b.id = newId; } return b;
-    });
-
-    data.nodes = data.nodes.map(n => {
-      if (!isUUID(n.id)) { const newId = crypto.randomUUID(); idMap[n.id] = newId; n.id = newId; }
-      if (n.building && idMap[n.building]) n.building = idMap[n.building];
-      n.floor = parseInt(n.floor, 10) || 1; return n;
-    });
-
-    data.edges = data.edges.map(e => {
-      if (!isUUID(e.id)) e.id = crypto.randomUUID();
-      if (idMap[e.from]) e.from = idMap[e.from];
-      if (idMap[e.to]) e.to = idMap[e.to];
-      return e;
-    });
-
-    if (data.buildings && data.buildings.length > 0) buildings = data.buildings;
-    else buildings = [{ id: 'exterior', name: 'Campus (Exterior)', min: 1, max: 1 }];
-
-    currentBuilding = 'exterior';
-    updateFloorSelector();
-
-    data.nodes.forEach(n => {
-      if (n.type === 'building') {
-        const bData = (data.buildings || []).find(b => b.id === n.id);
-        n.piso_min = bData ? bData.min : 1; n.piso_max = bData ? bData.max : 4;
-      }
-      const sysType = SYSTEM_TYPES[n.type] || SYSTEM_TYPES['waypoint'];
-      const el = document.createElement('div'); el.className = `graph-node type-${n.type}`;
-      el.style.width = sysType.size + 'px'; el.style.height = sysType.size + 'px'; el.textContent = n.icon || sysType.icon;
-      const marker = L.marker([n.lat, n.lng], { icon: L.divIcon({ html: el, iconSize: [sysType.size, sysType.size], className: '' }), draggable: mode === 'add' });
-      setNodeTooltip(marker, n.name);
-      const serviceProps = n.type !== 'waypoint' && n.type !== 'user' ? { horario: n.horario, descripcion: n.descripcion, link_derivacion: n.link_derivacion } : {};
-      const node = { id: n.id, type: n.type, name: n.name, icon: n.icon, latlng: L.latLng(n.lat, n.lng), floor: n.floor, building: n.building || 'exterior', marker, el, ...serviceProps };
-      nodes.push(node);
-      marker.on('click', (ev) => { L.DomEvent.stopPropagation(ev); onNodeClick(n.id, ev.latlng); });
-      marker.on('dragend', () => { node.latlng = marker.getLatLng(); rebuildLines(); markDirty(); });
-    });
-
-    data.edges.forEach(e => {
-      const fn = nodes.find(x => x.id === e.from), tn = nodes.find(x => x.id === e.to);
-      if (!fn || !tn) return;
-      const line = L.polyline([fn.latlng, tn.latlng], { color: e.es_escalera ? '#f5a623' : '#4a9eff', weight: 3 });
-      line.on('click', (ev) => onEdgeClick(e.id, line, ev));
-      edges.push({ id: e.id, from: e.from, to: e.to, weight: e.weight, es_escalera: e.es_escalera || false, line });
-    });
-
-    zones = (data.zonas || []).map(z => ({ id: z.id, building: z.building, name: z.name, tags: z.tags || [], color: z.color, geojson: z.geojson, polygon: null }));
-    zones.forEach(renderZone);
-    updateBuildingSelector(); renderMapNodes();
-  }
-
-  const STATUS_RESET_MS = 7000;
-  let baseStatus = { msg: 'Listo', state: 'ok' };
-  let statusTimer = null;
-
-  function renderStatus(msg, state) {
-    document.getElementById('status-txt').textContent = msg;
-    document.getElementById('sdot').className = 's-dot' + (state === 'warn' ? ' warn' : state === 'err' ? ' err' : '');
-  }
-
-  // base: estado de fondo al que se vuelve (p. ej. "Grafo cargado").
-  // sticky: se mantiene hasta el próximo setStatus (operaciones en curso).
-  // Por defecto el mensaje es temporal y a los 7 s vuelve al estado base.
-  function setStatus(msg, state, { base = false, sticky = false } = {}) {
-    clearTimeout(statusTimer);
-    renderStatus(msg, state);
-    if (base) { baseStatus = { msg, state }; return; }
-    if (!sticky) statusTimer = setTimeout(() => renderStatus(baseStatus.msg, baseStatus.state), STATUS_RESET_MS);
-  }
-
-  async function attemptDeleteBuilding(nodeId, zoneObj = null) {
-    const childNodes = nodes.filter(n => n.building === nodeId);
-    // Contar estrictamente POIs asociados (entradas, baños, etc.)
-    const salasCount = childNodes.filter(n => n.type !== 'waypoint' && n.type !== 'building' && n.type !== 'user').length;
-
-    const confirmMsg = salasCount > 0
-      ? `ADVERTENCIA: estás a punto de borrar un edificio con ${salasCount} salas/puntos.\n¿Estás seguro?`
-      : `¿Eliminar este edificio y su contorno asociado?`;
-
-    const proceed = await window.uiConfirm(confirmMsg, "Eliminar Edificio");
-    if (!proceed) return;
-
-    // Todo el edificio (contorno, hijos y nodo) es UNA acción: un solo Ctrl/⌘+Z lo restaura
-    recordDeletion(() => {
-      if (zoneObj) {
-        executeZoneDeletion(zoneObj);
-      } else {
-        const z = zones.find(z => z.building === nodeId);
-        if (z) executeZoneDeletion(z);
-      }
-      childNodes.forEach(child => executeNodeDeletion(child.id));
-      executeNodeDeletion(nodeId);
-    });
-  }
-
-  function executeZoneDeletion(zone) {
-    if (zone.polygon) zone.polygon.removeFrom(map);
-    zones = zones.filter(z => z.id !== zone.id);
-    if (deletionBatch) deletionBatch.zones.push(zone);
-    markDirty();
-  }
-
-  function executeEdgeDeletion(id) {
-    const e = edges.find(x => x.id === id);
-    if (!e) return;
-    e.line.removeFrom(map);
-    edges = edges.filter(x => x.id !== id);
-    if (deletionBatch) deletionBatch.edges.push(e);
-    markDirty();
-  }
-
-  function executeNodeDeletion(id) {
-    const n = nodes.find(x => x.id === id);
-    if (!n) return;
-    n.marker.removeFrom(map);
-    const removedEdges = edges.filter(e => e.from === id || e.to === id);
-    removedEdges.forEach(e => e.line.removeFrom(map));
-    edges = edges.filter(e => e.from !== id && e.to !== id);
-    nodes = nodes.filter(x => x.id !== id);
-    if (deletionBatch) { deletionBatch.nodes.push(n); deletionBatch.edges.push(...removedEdges); }
-    if (n.type === 'building') updateBuildingSelector();
-    markDirty();
-    renderMapNodes();
-  }
-
-  // Ejecuta una eliminación y la guarda como una sola acción deshacible
-  function recordDeletion(fn) {
-    const batch = { nodes: [], edges: [], zones: [] };
-    deletionBatch = batch;
-    try { fn(); } finally { deletionBatch = null; }
-    if (batch.nodes.length || batch.edges.length || batch.zones.length) {
-      undoStack.push(batch);
-      if (undoStack.length > UNDO_LIMIT) undoStack.shift();
-    }
-  }
-
-  function undoLastDeletion() {
-    const batch = undoStack.pop();
-    if (!batch) { setStatus('Nada que deshacer', 'ok'); return; }
-
-    nodes.push(...batch.nodes);
-    batch.edges.forEach(e => {
-      const endpointsExist = nodes.some(n => n.id === e.from) && nodes.some(n => n.id === e.to);
-      if (endpointsExist && !edges.some(x => x.id === e.id)) edges.push(e);
-    });
-    batch.zones.forEach(z => { zones.push(z); if (z.polygon) z.polygon.addTo(map); });
-
-    if (batch.nodes.some(n => n.type === 'building')) updateBuildingSelector();
-    applyMarkerDragging();
-    renderMapNodes(); // vuelve a agregar marcadores y aristas según el piso visible
-    markDirty();
-    setStatus('Eliminación deshecha', 'ok');
-  }
-
-  function hardClearMap() {
-    nodes.forEach(n => n.marker.removeFrom(map));
-    edges.forEach(e => e.line.removeFrom(map));
-    zones.forEach(z => z.polygon && z.polygon.removeFrom(map));
-    if (drawingZonePreviewLayer) { drawingZonePreviewLayer.removeFrom(map); drawingZonePreviewLayer = null; }
-    drawingZoneVertexLayers.forEach(m => m.removeFrom(map));
-    drawingZoneVertexLayers = [];
-
-    nodes = []; edges = []; zones = [];
-    undoStack = [];
-    originalNodes = new Set();
-    originalBuildings = new Set();
-    currentBuilding = 'exterior';
+  setNodeTooltip(n.marker, n.name);
+  if (n.type === 'building') {
+    const z = zones.find(z => z.building === id);
+    if (z) z.name = n.name;
     updateBuildingSelector();
   }
+  map.closePopup();
+  markDirty();
+};
+
+window.saveEdgeEdit = function (id) {
+  const e = edges.find(x => x.id === id);
+  e.es_escalera = document.getElementById('pop-es-escalera').checked;
+  e.line.setStyle({ color: e.es_escalera ? '#f5a623' : '#4a9eff' });
+  map.closePopup();
+  markDirty();
+};
+
+window.saveZoneEdit = function (id) {
+  const z = zones.find(x => x.id === id);
+  z.name = document.getElementById('pop-zone-name').value;
+  if (z.building) {
+    const n = nodes.find(n => n.id === z.building);
+    if (n) {
+      n.name = z.name;
+      setNodeTooltip(n.marker, n.name);
+    }
+    updateBuildingSelector();
+  }
+  map.closePopup();
+  markDirty();
+};
+
+function onNodeClick(id, latlng) {
+  if (mode === 'view') {
+    openInfoPopup('node', id, latlng);
+    return;
+  }
+
+  if (mode === 'delete') {
+    const n = nodes.find(x => x.id === id);
+    if (n.type === 'building') {
+      attemptDeleteBuilding(id);
+    } else {
+      recordDeletion(() => executeNodeDeletion(id));
+    }
+    return;
+  }
+
+  if (mode === 'edge') {
+    if (!edgeFrom) {
+      edgeFrom = id;
+      nodes.find(n => n.id === id).el.style.boxShadow = "0 0 0 4px rgba(74, 158, 255, 0.8)";
+    } else {
+      if (edgeFrom !== id) addEdge(edgeFrom, id);
+      cancelEdge();
+    }
+    return;
+  }
+
+  if (mode === 'add' || mode === 'zonaseg' || mode === 'edificio') {
+    openEditPopup('node', id, latlng);
+  }
+}
+
+function addEdge(from, to) {
+  if (edges.some(e => (e.from === from && e.to === to) || (e.from === to && e.to === from))) return;
+
+  const fNode = nodes.find(n => n.id === from), tNode = nodes.find(n => n.id === to);
+  const weight = map.distance(fNode.latlng, tNode.latlng);
+  const penalty = Math.abs(fNode.floor - tNode.floor) * 15;
+  const isEscalera = document.getElementById('edge-escalera-input')?.checked || false;
+  const color = isEscalera ? '#f5a623' : '#4a9eff';
+
+  const line = L.polyline([fNode.latlng, tNode.latlng], { color: color, weight: 3 }).addTo(map);
+  const id = crypto.randomUUID();
+
+  line.on('click', (ev) => onEdgeClick(id, line, ev));
+
+  edges.push({ id, from, to, weight: weight + penalty, es_escalera: isEscalera, line });
+  markDirty();
+  renderMapNodes();
+}
+
+function onEdgeClick(id, line, ev) {
+  L.DomEvent.stopPropagation(ev);
+  if (mode === 'delete') {
+    recordDeletion(() => executeEdgeDeletion(id));
+  } else if (mode === 'view') {
+    openInfoPopup('edge', id, ev.latlng);
+  } else {
+    openEditPopup('edge', id, ev.latlng);
+  }
+}
+
+function cancelEdge() {
+  if (edgeFrom) {
+    const n = nodes.find(x => x.id === edgeFrom);
+    if (n) n.el.style.boxShadow = "0 2px 8px rgba(0, 0, 0, 0.5)";
+  }
+  edgeFrom = null;
+}
+
+// Marcador de vértice reutilizable: arrastrable, sin propagar el clic al mapa y con clic derecho para quitarlo
+function makeVertexMarker(latlng, { onDrag, onRemove }) {
+  const marker = L.marker(latlng, { draggable: true, icon: L.divIcon({ className: 'zone-vertex', iconSize: [12, 12] }) }).addTo(map);
+  marker.on('drag', onDrag);
+  // Sin esto, un clic sobre un vértice llega también al mapa y crea otro punto encima
+  marker.on('click', (ev) => L.DomEvent.stopPropagation(ev));
+  marker.on('contextmenu', (ev) => {
+    L.DomEvent.stopPropagation(ev);
+    L.DomEvent.preventDefault(ev.originalEvent);
+    onRemove(marker);
+  });
+  return marker;
+}
+
+// Los puntos de la zona en dibujo se derivan del orden de los marcadores:
+// así, quitar un vértice no desordena los demás
+function syncDrawingPointsFromMarkers() {
+  drawingZonePoints = drawingZoneVertexLayers.map(m => { const ll = m.getLatLng(); return [ll.lat, ll.lng]; });
+  redrawZonePreviewShape();
+}
+
+function addZoneVertex(latlng) {
+  const marker = makeVertexMarker(latlng, {
+    onDrag: syncDrawingPointsFromMarkers,
+    onRemove: (m) => {
+      m.removeFrom(map);
+      drawingZoneVertexLayers.splice(drawingZoneVertexLayers.indexOf(m), 1);
+      syncDrawingPointsFromMarkers();
+    },
+  });
+  drawingZoneVertexLayers.push(marker);
+  syncDrawingPointsFromMarkers();
+}
+
+function redrawZonePreviewShape() {
+  if (drawingZonePreviewLayer) { drawingZonePreviewLayer.removeFrom(map); drawingZonePreviewLayer = null; }
+  if (drawingZonePoints.length === 2) drawingZonePreviewLayer = L.polyline(drawingZonePoints, { color: '#333', dashArray: '4,4' }).addTo(map);
+  else if (drawingZonePoints.length >= 3) drawingZonePreviewLayer = L.polygon(drawingZonePoints, { color: '#333', dashArray: '4,4', fillOpacity: 0.1 }).addTo(map);
+  const btnSave = document.getElementById(mode + '-save-btn');
+  if (btnSave) btnSave.disabled = drawingZonePoints.length < 3;
+}
+
+function cancelZoneDrawing() {
+  drawingZonePoints = [];
+  if (drawingZonePreviewLayer) { drawingZonePreviewLayer.removeFrom(map); drawingZonePreviewLayer = null; }
+  drawingZoneVertexLayers.forEach(m => m.removeFrom(map));
+  drawingZoneVertexLayers = [];
+  if (tempBldMarker) { tempBldMarker.removeFrom(map); tempBldMarker = null; }
+  bldStep = 1;
+  tempBldNodeLatLng = null;
+  document.getElementById('bld-guide-step1').style.display = 'block';
+  document.getElementById('bld-guide-step2').style.display = 'none';
+  document.getElementById('edificio-save-btn').disabled = true;
+  document.getElementById('zonaseg-save-btn').disabled = true;
+}
+
+function populateZoneBuildingSelect(kind) {
+  const sel = document.getElementById(kind + '-building-select');
+  if (!sel) return;
+  sel.innerHTML = '<option value="exterior">Exterior / Campus</option>' +
+    nodes.filter(n => n.type === 'building').map(b => `<option value="${escapeHtml(b.id)}">${escapeHtml(b.name)}</option>`).join('');
+}
+
+function openZonePanel(kind) {
+  cancelZoneDrawing();
+  document.getElementById(kind + '-name-input').value = '';
+  populateZoneBuildingSelect(kind);
+  if (kind === 'edificio') {
+    document.getElementById('bld-guide-step1').style.display = 'block';
+    document.getElementById('bld-guide-step2').style.display = 'none';
+  }
+}
+
+function confirmZoneConfig(kind) {
+  const name = document.getElementById(kind + '-name-input').value.trim() || 'Sin nombre';
+
+  if (kind === 'edificio' && drawingZonePoints.length >= 3 && tempBldNodeLatLng) {
+    const nodeId = crypto.randomUUID();
+    const el = document.createElement('div');
+    el.className = `graph-node type-building`;
+    el.style.width = '30px'; el.style.height = '30px'; el.textContent = '🏛️';
+
+    const marker = L.marker(tempBldNodeLatLng, { icon: L.divIcon({ html: el, iconSize: [30, 30], className: '' }), draggable: mode === 'add' }).addTo(map);
+    setNodeTooltip(marker, name);
+
+    marker.on('click', (ev) => { L.DomEvent.stopPropagation(ev); onNodeClick(nodeId, ev.latlng); });
+    marker.on('dragend', () => { node.latlng = marker.getLatLng(); rebuildLines(); markDirty(); });
+
+    const node = { id: nodeId, type: 'building', name: name, icon: '🏛️', latlng: tempBldNodeLatLng, floor: currentFloor, building: 'exterior', marker, el, piso_min: 1, piso_max: 4 };
+    nodes.push(node);
+
+    const shapePoints = drawingZonePoints;
+    const geojson = { type: 'Polygon', coordinates: [[...shapePoints, shapePoints[0]].map(([lat, lng]) => [lng, lat])] };
+    const zone = { id: crypto.randomUUID(), building: nodeId, name, tags: ['contorno_edificio'], color: '#3b6e8f', geojson, polygon: null };
+    zones.push(zone);
+    renderZone(zone);
+
+    if (tempBldMarker) { tempBldMarker.removeFrom(map); tempBldMarker = null; }
+    updateBuildingSelector();
+    bldStep = 1; tempBldNodeLatLng = null;
+    document.getElementById('bld-guide-step1').style.display = 'block';
+    document.getElementById('bld-guide-step2').style.display = 'none';
+
+  } else if (kind === 'zonaseg') {
+    const buildingVal = document.getElementById(kind + '-building-select').value;
+    const shapePoints = drawingZonePoints;
+    const geojson = { type: 'Polygon', coordinates: [[...shapePoints, shapePoints[0]].map(([lat, lng]) => [lng, lat])] };
+    const zone = { id: crypto.randomUUID(), building: buildingVal === 'exterior' ? null : buildingVal, name, tags: ['zona_segura'], color: '#1f7a5c', geojson, polygon: null };
+    zones.push(zone);
+    renderZone(zone);
+  }
+  markDirty();
+  openZonePanel(kind);
+}
+
+function enableZoneVertexEditing(id) {
+  cancelZoneDrawing(); // descarta un dibujo a medias y limpia los vértices anteriores
+  editingZoneId = id;
+  const zone = zones.find(z => z.id === id);
+  editingZoneBackup = JSON.parse(JSON.stringify(zone.geojson.coordinates));
+  zone.polygon.setStyle({ weight: 4, color: '#22d07a', dashArray: '5, 5' });
+  zone.geojson.coordinates[0].slice(0, -1).forEach(([lng, lat]) => {
+    drawingZoneVertexLayers.push(makeEditVertexMarker(zone, L.latLng(lat, lng)));
+  });
+  document.getElementById('vertex-edit-toolbar').style.display = 'flex';
+}
+
+// Aviso breve en el mapa, donde el usuario está mirando (no en la píldora de estado)
+function showMapHint(latlng, msg) {
+  const hint = L.tooltip(latlng, { content: escapeHtml(msg), direction: 'top', offset: [0, -8], className: 'map-hint' });
+  hint.openOn(map);
+  setTimeout(() => hint.remove(), 2500);
+}
+
+function makeEditVertexMarker(zone, latlng) {
+  return makeVertexMarker(latlng, {
+    onDrag: () => syncEditingZoneFromMarkers(zone),
+    onRemove: (m) => {
+      if (drawingZoneVertexLayers.length <= 3) { showMapHint(m.getLatLng(), 'El contorno necesita al menos 3 puntos'); return; }
+      m.removeFrom(map);
+      drawingZoneVertexLayers.splice(drawingZoneVertexLayers.indexOf(m), 1);
+      syncEditingZoneFromMarkers(zone);
+    },
+  });
+}
+
+// El anillo del polígono se reconstruye desde los marcadores, en su orden
+function syncEditingZoneFromMarkers(zone) {
+  const ring = drawingZoneVertexLayers.map(m => { const ll = m.getLatLng(); return [ll.lng, ll.lat]; });
+  zone.geojson.coordinates[0] = [...ring, ring[0]];
+  const leafletCoords = ring.map(([lng, lat]) => [lat, lng]);
+  zone.polygon.eachLayer(layer => layer.setLatLngs(leafletCoords));
+  markDirty();
+}
+
+// Inserta el punto en el lado del polígono más cercano al clic (distancia medida en píxeles de pantalla)
+function insertVertexIntoEditingZone(latlng) {
+  const zone = zones.find(z => z.id === editingZoneId);
+  if (!zone) return;
+  const p = map.latLngToLayerPoint(latlng);
+  const pts = drawingZoneVertexLayers.map(m => map.latLngToLayerPoint(m.getLatLng()));
+  let bestIdx = 0, bestDist = Infinity;
+  for (let i = 0; i < pts.length; i++) {
+    const d = L.LineUtil.pointToSegmentDistance(p, pts[i], pts[(i + 1) % pts.length]);
+    if (d < bestDist) { bestDist = d; bestIdx = i; }
+  }
+  drawingZoneVertexLayers.splice(bestIdx + 1, 0, makeEditVertexMarker(zone, latlng));
+  syncEditingZoneFromMarkers(zone);
+}
+
+window.finishVertexEditing = function ({ silent = false } = {}) {
+  drawingZoneVertexLayers.forEach(m => m.removeFrom(map));
+  drawingZoneVertexLayers = [];
+  document.getElementById('vertex-edit-toolbar').style.display = 'none';
+
+  if (editingZoneId) {
+    const zone = zones.find(z => z.id === editingZoneId);
+    if (zone) {
+      const base = zone.color || colorForZone(zone);
+      zone.polygon.setStyle({ weight: 2, color: shadeColor(base, -0.25), dashArray: null });
+    }
+    editingZoneId = null;
+  }
+  editingZoneBackup = null;
+  if (!silent) setStatus('Contorno modificado', 'warn');
+};
+
+// Esc o "Cancelar": descarta los cambios y devuelve el contorno a la forma que tenía al empezar
+window.cancelVertexEditing = function () {
+  const zone = zones.find(z => z.id === editingZoneId);
+  if (zone && editingZoneBackup) {
+    zone.geojson.coordinates = editingZoneBackup;
+    const leafletCoords = zone.geojson.coordinates[0].slice(0, -1).map(([lng, lat]) => [lat, lng]);
+    zone.polygon.eachLayer(layer => layer.setLatLngs(leafletCoords));
+  }
+  finishVertexEditing({ silent: true });
+};
+
+function renderZone(zone) {
+  const base = zone.color || colorForZone(zone);
+  zone.polygon = L.geoJSON(zone.geojson, { style: { color: shadeColor(base, -0.25), fillColor: shadeColor(base, 0.45), fillOpacity: 0.45, weight: 2 } }).addTo(map);
+  zone.polygon.on('click', (ev) => {
+    if (editingZoneId) { L.DomEvent.stopPropagation(ev); insertVertexIntoEditingZone(ev.latlng); return; }
+    if (mode === 'add' || mode === 'edge') { map.fire('click', ev); return; }
+    L.DomEvent.stopPropagation(ev);
+    if (mode === 'delete') {
+      if (zone.building) {
+        attemptDeleteBuilding(zone.building, zone);
+      } else {
+        recordDeletion(() => executeZoneDeletion(zone));
+      }
+    } else if (mode === 'view') {
+      openInfoPopup('zone', zone.id, ev.latlng);
+    } else {
+      openEditPopup('zone', zone.id, ev.latlng);
+    }
+  });
+}
+
+function shadeColor(hex, p) {
+  const num = parseInt(hex.replace('#', ''), 16);
+  const blend = (c) => Math.round(p > 0 ? c + (255 - c) * p : c + c * p);
+  return '#' + [blend((num >> 16) & 0xFF), blend((num >> 8) & 0xFF), blend(num & 0xFF)].map(c => Math.min(255, Math.max(0, c)).toString(16).padStart(2, '0')).join('');
+}
+function colorForZone(zone) {
+  const k = Object.values(ZONE_KINDS).find(k => zone.tags.includes(k.tag)); return k ? k.color : '#888888';
+}
+
+function rebuildLines() {
+  edges.forEach(e => {
+    const fn = nodes.find(n => n.id === e.from), tn = nodes.find(n => n.id === e.to);
+    e.line.setLatLngs([fn.latlng, tn.latlng]);
+  });
+}
+
+function loadGraph(data) {
+  if (data.nodes) {
+    const uniqueNodes = [];
+    const seenCoords = new Set();
+    data.nodes.forEach(n => {
+      const key = `${n.lat.toFixed(6)},${n.lng.toFixed(6)},${n.floor},${n.type}`;
+      if (!seenCoords.has(key)) {
+        seenCoords.add(key);
+        uniqueNodes.push(n);
+      }
+    });
+    data.nodes = uniqueNodes;
+  }
+
+  originalNodes = new Set((data.nodes || []).filter(n => n.type !== 'waypoint' && n.type !== 'building' && n.type !== 'user').map(n => n.id));
+  originalBuildings = new Set((data.buildings || []).filter(b => b.id !== 'exterior').map(b => b.id));
+
+  nodes.forEach(n => n.marker.removeFrom(map));
+  zones.forEach(z => z.polygon && z.polygon.removeFrom(map));
+  nodes = []; edges = []; zones = [];
+  undoStack = [];
+  if (!data.nodes || !data.edges) return;
+  const idMap = {}; const isUUID = (str) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(str);
+
+  data.buildings = (data.buildings || []).map(b => {
+    if (b.id !== 'exterior' && !isUUID(b.id)) { const newId = crypto.randomUUID(); idMap[b.id] = newId; b.id = newId; } return b;
+  });
+
+  data.nodes = data.nodes.map(n => {
+    if (!isUUID(n.id)) { const newId = crypto.randomUUID(); idMap[n.id] = newId; n.id = newId; }
+    if (n.building && idMap[n.building]) n.building = idMap[n.building];
+    n.floor = parseInt(n.floor, 10) || 1; return n;
+  });
+
+  data.edges = data.edges.map(e => {
+    if (!isUUID(e.id)) e.id = crypto.randomUUID();
+    if (idMap[e.from]) e.from = idMap[e.from];
+    if (idMap[e.to]) e.to = idMap[e.to];
+    return e;
+  });
+
+  if (data.buildings && data.buildings.length > 0) buildings = data.buildings;
+  else buildings = [{ id: 'exterior', name: 'Campus (Exterior)', min: 1, max: 1 }];
+
+  currentBuilding = 'exterior';
+  updateFloorSelector();
+
+  data.nodes.forEach(n => {
+    if (n.type === 'building') {
+      const bData = (data.buildings || []).find(b => b.id === n.id);
+      n.piso_min = bData ? bData.min : 1; n.piso_max = bData ? bData.max : 4;
+    }
+    const sysType = SYSTEM_TYPES[n.type] || SYSTEM_TYPES['waypoint'];
+    const el = document.createElement('div'); el.className = `graph-node type-${n.type}`;
+    el.style.width = sysType.size + 'px'; el.style.height = sysType.size + 'px'; el.textContent = n.icon || sysType.icon;
+    const marker = L.marker([n.lat, n.lng], { icon: L.divIcon({ html: el, iconSize: [sysType.size, sysType.size], className: '' }), draggable: mode === 'add' });
+    setNodeTooltip(marker, n.name);
+    const serviceProps = n.type !== 'waypoint' && n.type !== 'user' ? { horario: n.horario, descripcion: n.descripcion, link_derivacion: n.link_derivacion } : {};
+    const node = { id: n.id, type: n.type, name: n.name, icon: n.icon, latlng: L.latLng(n.lat, n.lng), floor: n.floor, building: n.building || 'exterior', marker, el, ...serviceProps };
+    nodes.push(node);
+    marker.on('click', (ev) => { L.DomEvent.stopPropagation(ev); onNodeClick(n.id, ev.latlng); });
+    marker.on('dragend', () => { node.latlng = marker.getLatLng(); rebuildLines(); markDirty(); });
+  });
+
+  data.edges.forEach(e => {
+    const fn = nodes.find(x => x.id === e.from), tn = nodes.find(x => x.id === e.to);
+    if (!fn || !tn) return;
+    const line = L.polyline([fn.latlng, tn.latlng], { color: e.es_escalera ? '#f5a623' : '#4a9eff', weight: 3 });
+    line.on('click', (ev) => onEdgeClick(e.id, line, ev));
+    edges.push({ id: e.id, from: e.from, to: e.to, weight: e.weight, es_escalera: e.es_escalera || false, line });
+  });
+
+  zones = (data.zonas || []).map(z => ({ id: z.id, building: z.building, name: z.name, tags: z.tags || [], color: z.color, geojson: z.geojson, polygon: null }));
+  zones.forEach(renderZone);
+  updateBuildingSelector(); renderMapNodes();
+}
+
+const STATUS_RESET_MS = 7000;
+let baseStatus = { msg: 'Listo', state: 'ok' };
+let statusTimer = null;
+
+function renderStatus(msg, state) {
+  document.getElementById('status-txt').textContent = msg;
+  document.getElementById('sdot').className = 's-dot' + (state === 'warn' ? ' warn' : state === 'err' ? ' err' : '');
+}
+
+// base: estado de fondo al que se vuelve (p. ej. "Grafo cargado").
+// sticky: se mantiene hasta el próximo setStatus (operaciones en curso).
+// Por defecto el mensaje es temporal y a los 7 s vuelve al estado base.
+function setStatus(msg, state, { base = false, sticky = false } = {}) {
+  clearTimeout(statusTimer);
+  renderStatus(msg, state);
+  if (base) { baseStatus = { msg, state }; return; }
+  if (!sticky) statusTimer = setTimeout(() => renderStatus(baseStatus.msg, baseStatus.state), STATUS_RESET_MS);
+}
+
+async function attemptDeleteBuilding(nodeId, zoneObj = null) {
+  const childNodes = nodes.filter(n => n.building === nodeId);
+  // Contar estrictamente POIs asociados (entradas, baños, etc.)
+  const salasCount = childNodes.filter(n => n.type !== 'waypoint' && n.type !== 'building' && n.type !== 'user').length;
+
+  const confirmMsg = salasCount > 0
+    ? `ADVERTENCIA: estás a punto de borrar un edificio con ${salasCount} salas/puntos.\n¿Estás seguro?`
+    : `¿Eliminar este edificio y su contorno asociado?`;
+
+  const proceed = await window.uiConfirm(confirmMsg, "Eliminar Edificio");
+  if (!proceed) return;
+
+  // Todo el edificio (contorno, hijos y nodo) es UNA acción: un solo Ctrl/⌘+Z lo restaura
+  recordDeletion(() => {
+    if (zoneObj) {
+      executeZoneDeletion(zoneObj);
+    } else {
+      const z = zones.find(z => z.building === nodeId);
+      if (z) executeZoneDeletion(z);
+    }
+    childNodes.forEach(child => executeNodeDeletion(child.id));
+    executeNodeDeletion(nodeId);
+  });
+}
+
+function executeZoneDeletion(zone) {
+  if (zone.polygon) zone.polygon.removeFrom(map);
+  zones = zones.filter(z => z.id !== zone.id);
+  if (deletionBatch) deletionBatch.zones.push(zone);
+  markDirty();
+}
+
+function executeEdgeDeletion(id) {
+  const e = edges.find(x => x.id === id);
+  if (!e) return;
+  e.line.removeFrom(map);
+  edges = edges.filter(x => x.id !== id);
+  if (deletionBatch) deletionBatch.edges.push(e);
+  markDirty();
+}
+
+function executeNodeDeletion(id) {
+  const n = nodes.find(x => x.id === id);
+  if (!n) return;
+  n.marker.removeFrom(map);
+  const removedEdges = edges.filter(e => e.from === id || e.to === id);
+  removedEdges.forEach(e => e.line.removeFrom(map));
+  edges = edges.filter(e => e.from !== id && e.to !== id);
+  nodes = nodes.filter(x => x.id !== id);
+  if (deletionBatch) { deletionBatch.nodes.push(n); deletionBatch.edges.push(...removedEdges); }
+  if (n.type === 'building') updateBuildingSelector();
+  markDirty();
+  renderMapNodes();
+}
+
+// Ejecuta una eliminación y la guarda como una sola acción deshacible
+function recordDeletion(fn) {
+  const batch = { nodes: [], edges: [], zones: [] };
+  deletionBatch = batch;
+  try { fn(); } finally { deletionBatch = null; }
+  if (batch.nodes.length || batch.edges.length || batch.zones.length) {
+    undoStack.push(batch);
+    if (undoStack.length > UNDO_LIMIT) undoStack.shift();
+  }
+}
+
+function undoLastDeletion() {
+  const batch = undoStack.pop();
+  if (!batch) { setStatus('Nada que deshacer', 'ok'); return; }
+
+  nodes.push(...batch.nodes);
+  batch.edges.forEach(e => {
+    const endpointsExist = nodes.some(n => n.id === e.from) && nodes.some(n => n.id === e.to);
+    if (endpointsExist && !edges.some(x => x.id === e.id)) edges.push(e);
+  });
+  batch.zones.forEach(z => { zones.push(z); if (z.polygon) z.polygon.addTo(map); });
+
+  if (batch.nodes.some(n => n.type === 'building')) updateBuildingSelector();
+  applyMarkerDragging();
+  renderMapNodes(); // vuelve a agregar marcadores y aristas según el piso visible
+  markDirty();
+  setStatus('Eliminación deshecha', 'ok');
+}
+
+function hardClearMap() {
+  nodes.forEach(n => n.marker.removeFrom(map));
+  edges.forEach(e => e.line.removeFrom(map));
+  zones.forEach(z => z.polygon && z.polygon.removeFrom(map));
+  if (drawingZonePreviewLayer) { drawingZonePreviewLayer.removeFrom(map); drawingZonePreviewLayer = null; }
+  drawingZoneVertexLayers.forEach(m => m.removeFrom(map));
+  drawingZoneVertexLayers = [];
+
+  nodes = []; edges = []; zones = [];
+  undoStack = [];
+  originalNodes = new Set();
+  originalBuildings = new Set();
+  currentBuilding = 'exterior';
+  updateBuildingSelector();
+}
