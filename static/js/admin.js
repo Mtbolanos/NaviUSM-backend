@@ -22,6 +22,7 @@ let tempBldNodeLatLng = null;
 let originalNodes = new Set();
 let originalBuildings = new Set();
 let editingZoneId = null;
+let editingZoneBackup = null; // copia del contorno al empezar a editar, para poder cancelar
 let activePopup = null; // popup abierto según los eventos de Leaflet (el DOM tarda ~200 ms en desaparecer)
 
 let currentSedeId = null; // sede cargada; para revertir el selector si se cancela el cambio
@@ -39,6 +40,8 @@ const NODE_TYPE_LABELS = {
   waypoint: 'Punto de ruta', building: 'Edificio', entrance: 'Entrada / Sala',
   'baño': 'Baño', seguridad: 'Puesto de seguridad', servicio: 'Servicio'
 };
+// Tipos que se pueden asignar desde el popup ("Edificio" se crea con su propia herramienta, por el contorno)
+const EDITABLE_NODE_TYPES = ['waypoint', 'entrance', 'baño', 'seguridad', 'servicio'];
 
 let zones = [];
 let drawingZonePoints = [];
@@ -103,7 +106,7 @@ function onKeyDown(ev) {
 // Esc deshace un nivel por vez: popup → edición de vértices → dibujo en curso → arista a medias → modo Ver
 function handleEscape() {
   if (activePopup) { map.closePopup(); return; }
-  if (document.getElementById('vertex-edit-toolbar').style.display !== 'none') { finishVertexEditing(); return; }
+  if (document.getElementById('vertex-edit-toolbar').style.display !== 'none') { cancelVertexEditing(); return; }
   if ((mode === 'zonaseg' || mode === 'edificio') && (drawingZonePoints.length > 0 || tempBldMarker)) { cancelZoneDrawing(); return; }
   if (mode === 'edge' && edgeFrom) { cancelEdge(); return; }
   if (mode !== 'view') setMode('view');
@@ -430,6 +433,7 @@ function setSystemType(el) {
 }
 
 function onMapClick(e) {
+  if (editingZoneId) { insertVertexIntoEditingZone(e.latlng); return; }
   if (mode === 'edificio') {
     if (bldStep === 1) {
       tempBldNodeLatLng = e.latlng;
@@ -493,14 +497,22 @@ function openEditPopup(type, id, latlng) {
     const isSrv = n.type !== 'waypoint' && n.type !== 'user';
 
     const bOptions = nodes.filter(x => x.type === 'building').map(b => `<option value="${escapeHtml(b.id)}" ${b.id === n.building ? 'selected' : ''}>${escapeHtml(b.name)}</option>`).join('');
+    // Si el nodo tiene un tipo fuera de la lista (datos antiguos), se agrega para no cambiarlo sin querer
+    const types = EDITABLE_NODE_TYPES.includes(n.type) ? EDITABLE_NODE_TYPES : [n.type, ...EDITABLE_NODE_TYPES];
+    const typeOptions = types.map(t => `<option value="${escapeHtml(t)}" ${t === n.type ? 'selected' : ''}>${SYSTEM_TYPES[t]?.icon || ''} ${escapeHtml(NODE_TYPE_LABELS[t] || t)}</option>`).join('');
 
     html = `
           <div class="pop-edit">
             <h6 style="margin-bottom:10px; font-weight:bold; color:var(--naviusm-text);">Editar ${isBld ? 'Edificio' : 'Nodo'}</h6>
             <label>Nombre</label>
             <input type="text" id="pop-name" class="form-control form-control-sm mb-2" value="${escapeHtml(n.name)}">
-            
+
             ${!isBld ? `
+            <label>Tipo</label>
+            <select id="pop-type" class="form-select form-select-sm mb-2" style="font-size:12px;"
+              data-prev="${escapeHtml(n.type)}" onchange="onPopTypeChange(this)">
+              ${typeOptions}
+            </select>
             <label>Edificio Asignado</label>
             <select id="pop-building" class="form-select form-select-sm mb-2" style="font-size:12px;">
               <option value="exterior" ${n.building === 'exterior' ? 'selected' : ''}>Campus (Exterior)</option>
@@ -508,16 +520,16 @@ function openEditPopup(type, id, latlng) {
             </select>
             ` : ''}
 
-            ${isSrv ? `
+            <div id="pop-srv-fields" style="display:${isSrv ? 'block' : 'none'};">
               <label>Icono (Emoji)</label>
-          <input type="text" id="pop-icon" class="form-control form-control-sm mb-2" value="${escapeHtml(n.icon)}" maxlength="4">
-          <label>Horario</label>
-          <input type="text" id="pop-horario" class="form-control form-control-sm mb-2" value="${escapeHtml(n.horario)}">
-          <label>Descripción</label>
-          <textarea id="pop-desc" class="form-control form-control-sm mb-2" rows="2">${escapeHtml(n.descripcion)}</textarea>
-          <label>Link</label>
-          <input type="url" id="pop-link" class="form-control form-control-sm mb-2" value="${escapeHtml(n.link_derivacion)}">
-        ` : ''}
+              <input type="text" id="pop-icon" class="form-control form-control-sm mb-2" value="${escapeHtml(isSrv ? n.icon : '')}" maxlength="4">
+              <label>Horario</label>
+              <input type="text" id="pop-horario" class="form-control form-control-sm mb-2" value="${escapeHtml(n.horario)}">
+              <label>Descripción</label>
+              <textarea id="pop-desc" class="form-control form-control-sm mb-2" rows="2">${escapeHtml(n.descripcion)}</textarea>
+              <label>Link</label>
+              <input type="url" id="pop-link" class="form-control form-control-sm mb-2" value="${escapeHtml(n.link_derivacion)}">
+            </div>
         <div class="d-flex justify-content-end gap-2 mt-3">
           <button class="btn btn-sm btn-secondary" onclick="map.closePopup()">Cancelar</button>
           <button class="btn btn-sm btn-success" style="background:var(--naviusm-green); border:none;" onclick="saveNodeEdit('${id}')">Guardar</button>
@@ -557,21 +569,63 @@ function openEditPopup(type, id, latlng) {
   L.popup({ className: 'dark-popup' }).setLatLng(latlng).setContent(html).openOn(map);
 }
 
-window.saveNodeEdit = function (id) {
+// Al cambiar el tipo en el popup: mostrar u ocultar los campos de POI y proponer el ícono del nuevo tipo
+window.onPopTypeChange = function (sel) {
+  const isPoi = sel.value !== 'waypoint' && sel.value !== 'user';
+  document.getElementById('pop-srv-fields').style.display = isPoi ? 'block' : 'none';
+  const iconInp = document.getElementById('pop-icon');
+  const prevDefault = SYSTEM_TYPES[sel.dataset.prev]?.icon;
+  // Solo se reemplaza si estaba vacío o era el ícono por defecto del tipo anterior (respeta emojis personalizados)
+  if (!iconInp.value.trim() || iconInp.value === prevDefault) iconInp.value = SYSTEM_TYPES[sel.value]?.icon || '';
+  sel.dataset.prev = sel.value;
+};
+
+function setNodeType(n, newType) {
+  const sys = SYSTEM_TYPES[newType] || SYSTEM_TYPES.waypoint;
+  n.type = newType;
+  n.el.className = `graph-node type-${newType}`;
+  n.el.style.width = sys.size + 'px'; n.el.style.height = sys.size + 'px';
+  // Cambia el tamaño del ícono; Leaflet recrea el elemento y conserva el estado de arrastre
+  n.marker.setIcon(L.divIcon({ html: n.el, iconSize: [sys.size, sys.size], className: '' }));
+}
+
+window.saveNodeEdit = async function (id) {
   const n = nodes.find(x => x.id === id);
-  n.name = document.getElementById('pop-name').value;
+  const val = (elId) => document.getElementById(elId)?.value;
+  // Leer el formulario antes de cualquier diálogo
+  const form = {
+    type: val('pop-type') || n.type,
+    name: val('pop-name'),
+    building: val('pop-building'),
+    icon: (val('pop-icon') || '').trim(),
+    horario: val('pop-horario'),
+    descripcion: val('pop-desc'),
+    link: val('pop-link'),
+  };
+  const isPoi = form.type !== 'waypoint' && form.type !== 'user';
 
-  if (n.type !== 'building' && document.getElementById('pop-building')) {
-    n.building = document.getElementById('pop-building').value;
+  if (!isPoi && n.type !== form.type && (n.horario || n.descripcion || n.link_derivacion)) {
+    const ok = await window.uiConfirm(
+      "Al convertirlo en Punto de Ruta se descartarán el horario, la descripción y el link.\n¿Continuar?",
+      "Cambiar tipo de nodo");
+    if (!ok) return;
   }
 
-  if (document.getElementById('pop-icon')) {
-    n.icon = document.getElementById('pop-icon').value;
-    n.el.textContent = n.icon;
-    n.horario = document.getElementById('pop-horario').value;
-    n.descripcion = document.getElementById('pop-desc').value;
-    n.link_derivacion = document.getElementById('pop-link').value;
+  n.name = form.name;
+  if (n.type !== 'building' && form.building !== undefined) n.building = form.building;
+  if (form.type !== n.type) setNodeType(n, form.type);
+
+  if (isPoi) {
+    n.icon = form.icon || SYSTEM_TYPES[n.type]?.icon || '';
+    n.horario = form.horario;
+    n.descripcion = form.descripcion;
+    n.link_derivacion = form.link;
+  } else {
+    n.icon = SYSTEM_TYPES.waypoint.icon;
+    delete n.horario; delete n.descripcion; delete n.link_derivacion;
   }
+  n.el.textContent = n.icon;
+
   setNodeTooltip(n.marker, n.name);
   if (n.type === 'building') {
     const z = zones.find(z => z.building === id);
@@ -675,17 +729,38 @@ function cancelEdge() {
   edgeFrom = null;
 }
 
-function addZoneVertex(latlng) {
-  const idx = drawingZonePoints.length;
-  drawingZonePoints.push([latlng.lat, latlng.lng]);
+// Marcador de vértice reutilizable: arrastrable, sin propagar el clic al mapa y con clic derecho para quitarlo
+function makeVertexMarker(latlng, { onDrag, onRemove }) {
   const marker = L.marker(latlng, { draggable: true, icon: L.divIcon({ className: 'zone-vertex', iconSize: [12, 12] }) }).addTo(map);
-  marker.on('drag', () => {
-    const ll = marker.getLatLng();
-    drawingZonePoints[idx] = [ll.lat, ll.lng];
-    redrawZonePreviewShape();
+  marker.on('drag', onDrag);
+  // Sin esto, un clic sobre un vértice llega también al mapa y crea otro punto encima
+  marker.on('click', (ev) => L.DomEvent.stopPropagation(ev));
+  marker.on('contextmenu', (ev) => {
+    L.DomEvent.stopPropagation(ev);
+    L.DomEvent.preventDefault(ev.originalEvent);
+    onRemove(marker);
+  });
+  return marker;
+}
+
+// Los puntos de la zona en dibujo se derivan del orden de los marcadores:
+// así, quitar un vértice no desordena los demás
+function syncDrawingPointsFromMarkers() {
+  drawingZonePoints = drawingZoneVertexLayers.map(m => { const ll = m.getLatLng(); return [ll.lat, ll.lng]; });
+  redrawZonePreviewShape();
+}
+
+function addZoneVertex(latlng) {
+  const marker = makeVertexMarker(latlng, {
+    onDrag: syncDrawingPointsFromMarkers,
+    onRemove: (m) => {
+      m.removeFrom(map);
+      drawingZoneVertexLayers.splice(drawingZoneVertexLayers.indexOf(m), 1);
+      syncDrawingPointsFromMarkers();
+    },
   });
   drawingZoneVertexLayers.push(marker);
-  redrawZonePreviewShape();
+  syncDrawingPointsFromMarkers();
 }
 
 function redrawZonePreviewShape() {
@@ -770,35 +845,61 @@ function confirmZoneConfig(kind) {
 }
 
 function enableZoneVertexEditing(id) {
+  cancelZoneDrawing(); // descarta un dibujo a medias y limpia los vértices anteriores
   editingZoneId = id;
   const zone = zones.find(z => z.id === id);
-  drawingZoneVertexLayers.forEach(m => m.removeFrom(map));
-  drawingZoneVertexLayers = [];
-
+  editingZoneBackup = JSON.parse(JSON.stringify(zone.geojson.coordinates));
   zone.polygon.setStyle({ weight: 4, color: '#22d07a', dashArray: '5, 5' });
-
-  const coords = zone.geojson.coordinates[0].slice(0, -1);
-  coords.forEach((coord, idx) => {
-    const latlng = [coord[1], coord[0]];
-    const marker = L.marker(latlng, { draggable: true, icon: L.divIcon({ className: 'zone-vertex', iconSize: [12, 12] }) }).addTo(map);
-
-    marker.on('drag', () => {
-      const ll = marker.getLatLng();
-      zone.geojson.coordinates[0][idx] = [ll.lng, ll.lat];
-      if (idx === 0) zone.geojson.coordinates[0][coords.length] = [ll.lng, ll.lat];
-      const leafletCoords = zone.geojson.coordinates[0].map(c => [c[1], c[0]]);
-
-      zone.polygon.eachLayer(layer => {
-        layer.setLatLngs(leafletCoords);
-      });
-      markDirty();
-    });
-    drawingZoneVertexLayers.push(marker);
+  zone.geojson.coordinates[0].slice(0, -1).forEach(([lng, lat]) => {
+    drawingZoneVertexLayers.push(makeEditVertexMarker(zone, L.latLng(lat, lng)));
   });
   document.getElementById('vertex-edit-toolbar').style.display = 'flex';
 }
 
-window.finishVertexEditing = function () {
+// Aviso breve en el mapa, donde el usuario está mirando (no en la píldora de estado)
+function showMapHint(latlng, msg) {
+  const hint = L.tooltip(latlng, { content: escapeHtml(msg), direction: 'top', offset: [0, -8], className: 'map-hint' });
+  hint.openOn(map);
+  setTimeout(() => hint.remove(), 2500);
+}
+
+function makeEditVertexMarker(zone, latlng) {
+  return makeVertexMarker(latlng, {
+    onDrag: () => syncEditingZoneFromMarkers(zone),
+    onRemove: (m) => {
+      if (drawingZoneVertexLayers.length <= 3) { showMapHint(m.getLatLng(), 'El contorno necesita al menos 3 puntos'); return; }
+      m.removeFrom(map);
+      drawingZoneVertexLayers.splice(drawingZoneVertexLayers.indexOf(m), 1);
+      syncEditingZoneFromMarkers(zone);
+    },
+  });
+}
+
+// El anillo del polígono se reconstruye desde los marcadores, en su orden
+function syncEditingZoneFromMarkers(zone) {
+  const ring = drawingZoneVertexLayers.map(m => { const ll = m.getLatLng(); return [ll.lng, ll.lat]; });
+  zone.geojson.coordinates[0] = [...ring, ring[0]];
+  const leafletCoords = ring.map(([lng, lat]) => [lat, lng]);
+  zone.polygon.eachLayer(layer => layer.setLatLngs(leafletCoords));
+  markDirty();
+}
+
+// Inserta el punto en el lado del polígono más cercano al clic (distancia medida en píxeles de pantalla)
+function insertVertexIntoEditingZone(latlng) {
+  const zone = zones.find(z => z.id === editingZoneId);
+  if (!zone) return;
+  const p = map.latLngToLayerPoint(latlng);
+  const pts = drawingZoneVertexLayers.map(m => map.latLngToLayerPoint(m.getLatLng()));
+  let bestIdx = 0, bestDist = Infinity;
+  for (let i = 0; i < pts.length; i++) {
+    const d = L.LineUtil.pointToSegmentDistance(p, pts[i], pts[(i + 1) % pts.length]);
+    if (d < bestDist) { bestDist = d; bestIdx = i; }
+  }
+  drawingZoneVertexLayers.splice(bestIdx + 1, 0, makeEditVertexMarker(zone, latlng));
+  syncEditingZoneFromMarkers(zone);
+}
+
+window.finishVertexEditing = function ({ silent = false } = {}) {
   drawingZoneVertexLayers.forEach(m => m.removeFrom(map));
   drawingZoneVertexLayers = [];
   document.getElementById('vertex-edit-toolbar').style.display = 'none';
@@ -811,13 +912,26 @@ window.finishVertexEditing = function () {
     }
     editingZoneId = null;
   }
-  setStatus('Contorno modificado', 'warn');
-}
+  editingZoneBackup = null;
+  if (!silent) setStatus('Contorno modificado', 'warn');
+};
+
+// Esc o "Cancelar": descarta los cambios y devuelve el contorno a la forma que tenía al empezar
+window.cancelVertexEditing = function () {
+  const zone = zones.find(z => z.id === editingZoneId);
+  if (zone && editingZoneBackup) {
+    zone.geojson.coordinates = editingZoneBackup;
+    const leafletCoords = zone.geojson.coordinates[0].slice(0, -1).map(([lng, lat]) => [lat, lng]);
+    zone.polygon.eachLayer(layer => layer.setLatLngs(leafletCoords));
+  }
+  finishVertexEditing({ silent: true });
+};
 
 function renderZone(zone) {
   const base = zone.color || colorForZone(zone);
   zone.polygon = L.geoJSON(zone.geojson, { style: { color: shadeColor(base, -0.25), fillColor: shadeColor(base, 0.45), fillOpacity: 0.45, weight: 2 } }).addTo(map);
   zone.polygon.on('click', (ev) => {
+    if (editingZoneId) { L.DomEvent.stopPropagation(ev); insertVertexIntoEditingZone(ev.latlng); return; }
     if (mode === 'add' || mode === 'edge') { map.fire('click', ev); return; }
     L.DomEvent.stopPropagation(ev);
     if (mode === 'delete') {

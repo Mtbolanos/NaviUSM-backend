@@ -31,14 +31,22 @@ function updatePin(lat, lng) {
 
 async function searchLocation() {
   const query = document.getElementById('ns-search').value.trim();
-  if (!query) return;
+  if (query.length < 2) return;
 
   const btn = document.querySelector('#ns-search + button');
   const resDiv = document.getElementById('ns-search-results');
   btn.textContent = "⏳"; btn.disabled = true;
 
   try {
-    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5`);
+    const center = nsMap.getCenter();
+    const params = new URLSearchParams({
+      q: query,
+      solo_recintos: document.getElementById('ns-solo-recintos').checked,
+      lat: center.lat.toFixed(5),
+      lng: center.lng.toFixed(5),
+    });
+    const res = await fetch(`${ROOT_PATH}/admin/api/geocode?${params}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
 
     resDiv.innerHTML = '';
@@ -48,14 +56,22 @@ async function searchLocation() {
         a.className = 'list-group-item list-group-item-action py-2';
         a.style.fontSize = '12px';
         a.style.cursor = 'pointer';
-        a.textContent = place.display_name;
+        // textContent: los nombres vienen de un servicio externo, nunca se insertan como HTML
+        const title = document.createElement('div');
+        title.style.fontWeight = '600';
+        title.textContent = place.nombre;
+        a.appendChild(title);
+        if (place.detalle) {
+          const sub = document.createElement('div');
+          sub.className = 'text-muted';
+          sub.textContent = place.detalle;
+          a.appendChild(sub);
+        }
         a.onclick = () => {
-          const lat = parseFloat(place.lat);
-          const lon = parseFloat(place.lon);
-          updatePin(lat, lon);
-          nsMap.setView([lat, lon], 17);
+          updatePin(place.lat, place.lng);
+          nsMap.setView([place.lat, place.lng], 17);
           resDiv.style.display = 'none';
-          document.getElementById('ns-search').value = place.name || place.display_name.split(',')[0];
+          document.getElementById('ns-search').value = place.nombre;
         };
         resDiv.appendChild(a);
       });
