@@ -28,8 +28,6 @@ const ZONE_KINDS = {
   zonaseg: { tag: 'zona_segura', color: '#1f7a5c' },
   edificio: { tag: 'contorno_edificio', color: '#3b6e8f' },
 };
-const EDGE_COLOR = '#4a9eff';
-const STAIRS_COLOR = '#f5a623';
 const HISTORY_LIMIT = 100;
 const STATUS_RESET_MS = 7000;
 
@@ -42,6 +40,8 @@ let stairsMode = false;         // Crear: las conexiones nuevas son escaleras
 let currentFloor = 1, currentBuilding = 'exterior';
 let currentSedeId = null;       // sede cargada; para revertir el selector si se cancela el cambio
 let hasUnsavedChanges = false;
+let cleanState = null;          // mapa serializado al cargar o publicar; si el actual es idéntico, no hay cambios
+let dirtyCheckPending = false;
 let originalNodes = new Set(), originalBuildings = new Set();
 let activePopup = null;         // popup abierto según los eventos de Leaflet (el DOM tarda ~200 ms en desaparecer)
 let ctx = null;                 // menú contextual de Crear: { latlng, popup, step, options }
@@ -113,6 +113,19 @@ function colorForZone(zone) {
   return k ? k.color : '#888888';
 }
 
+// Colores de dibujo según el tema (definidos en admin.css), para mantener el contraste sobre el mapa claro u oscuro
+function themeVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+function isLightTheme() {
+  return document.documentElement.getAttribute('data-theme') === 'light';
+}
+
+function edgeColor(e) {
+  return themeVar(e.es_escalera ? '--map-stairs' : '--map-edge');
+}
+
 // =============================================================================
 // Estado "con cambios" y píldora de estado
 // =============================================================================
@@ -122,14 +135,24 @@ window.addEventListener('beforeunload', (e) => {
   e.returnValue = '';  // compatibilidad con navegadores antiguos
 });
 
+// Compara el mapa actual con el último cargado o publicado (una vez por cuadro, aunque se llame en cada arrastre)
 function markDirty() {
-  hasUnsavedChanges = true;
-  document.getElementById('dirty-badge').hidden = false;
+  if (dirtyCheckPending) return;
+  dirtyCheckPending = true;
+  requestAnimationFrame(() => {
+    dirtyCheckPending = false;
+    setDirty(JSON.stringify(serializeState()) !== cleanState);
+  });
 }
 
 function markClean() {
-  hasUnsavedChanges = false;
-  document.getElementById('dirty-badge').hidden = true;
+  cleanState = JSON.stringify(serializeState());
+  setDirty(false);
+}
+
+function setDirty(dirty) {
+  hasUnsavedChanges = dirty;
+  document.getElementById('dirty-badge').hidden = !dirty;
 }
 
 let baseStatus = { msg: 'Listo', state: 'ok' };
@@ -174,6 +197,7 @@ window.addEventListener('load', () => {
   });
   // Fase de captura: corre antes que el manejador de Esc de Leaflet, con el popup aún abierto
   document.addEventListener('keydown', onKeyDown, true);
+  new MutationObserver(applyThemeToMap).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
   centrarMapaEnSede();
   loadFromServer();
@@ -277,8 +301,8 @@ function onKeyDown(ev) {
     return;
   }
   if (key === '?') { ev.preventDefault(); openHelp(); return; }
-  if (/^[1-9]$/.test(key) && ctx && ctx.step === 'menu') {
-    const opt = ctx.options[parseInt(key, 10) - 1];
+  if (/^[0-9]$/.test(key) && ctx && ctx.step === 'menu') {
+    const opt = ctx.options.find(o => o.key === key);
     if (opt) { ev.preventDefault(); opt.action(); }
     return;
   }
@@ -446,7 +470,7 @@ function createNodeObject(d) {
 function createEdgeObject(d) {
   const fn = nodes.find(x => x.id === d.from), tn = nodes.find(x => x.id === d.to);
   if (!fn || !tn) return null;
-  const line = L.polyline([fn.latlng, tn.latlng], { color: d.es_escalera ? STAIRS_COLOR : EDGE_COLOR, weight: 3 });
+  const line = L.polyline([fn.latlng, tn.latlng], { color: edgeColor(d), weight: 3 });
   const edge = { id: d.id, from: d.from, to: d.to, weight: d.weight, es_escalera: !!d.es_escalera, line };
 
   line.on('click', (ev) => onEdgeClick(edge.id, ev));
@@ -462,9 +486,23 @@ function createEdgeObject(d) {
   return edge;
 }
 
+// El color guardado es dato del snapshot; aquí solo se ajusta cómo se dibuja según el tema
 function zoneStyle(zone, selected = false) {
   const base = zone.color || colorForZone(zone);
-  return { color: shadeColor(base, -0.25), fillColor: shadeColor(base, 0.45), fillOpacity: 0.45, weight: selected ? 4 : 2, dashArray: null };
+  const light = isLightTheme();
+  return {
+    color: shadeColor(base, light ? -0.4 : -0.25),
+    fillColor: shadeColor(base, light ? 0.1 : 0.45),
+    fillOpacity: light ? 0.35 : 0.45,
+    weight: selected ? 4 : (light ? 2.5 : 2),
+    dashArray: null,
+  };
+}
+
+// Al cambiar el tema se vuelven a pintar conexiones y zonas con los colores del tema nuevo
+function applyThemeToMap() {
+  zones.forEach(z => { if (z.id !== editingZoneId) z.polygon.setStyle(zoneStyle(z, selection?.id === z.id)); });
+  renderMapNodes();
 }
 
 function createZoneObject(d) {
@@ -648,20 +686,22 @@ function openCreateMenu(latlng) {
   popup.openOn(map);
 }
 
-// Cada acción lee la posición antes de cerrar el popup (al cerrarse, ctx se limpia)
+// Teclas fijas: 1 Nodo, 2 Edificio, 3 Zona segura y 0 Repetir (solo si ya se creó algo).
+// Cada acción lee la posición antes de cerrar el popup (al cerrarse, ctx se limpia).
 function rootMenuOptions() {
   const opts = [];
   if (lastCreated) {
-    opts.push({ label: `Repetir: ${labelForLast(lastCreated)}`, hint: 'Shift + clic', action: () => { const ll = ctx.latlng; map.closePopup(); repeatLast(ll); } });
+    opts.push({ key: '0', label: `Repetir: ${labelForLast(lastCreated)}`, hint: 'Shift + clic', action: () => repeatLast(ctx.latlng) });
   }
-  opts.push({ label: 'Nodo', hint: 'Elegir tipo', action: () => showMenuStep(nodeTypeOptions(), 'Tipo de nodo', true) });
-  opts.push({ label: 'Edificio', hint: 'Dibujar contorno', action: () => { const ll = ctx.latlng; map.closePopup(); startDrawing('building', ll); } });
-  opts.push({ label: 'Zona segura', hint: 'Dibujar contorno', action: () => { const ll = ctx.latlng; map.closePopup(); startDrawing('zone', ll); } });
+  opts.push({ key: '1', label: 'Nodo', hint: 'Elegir tipo', action: () => showMenuStep(nodeTypeOptions(), 'Tipo de nodo', true) });
+  opts.push({ key: '2', label: 'Edificio', hint: 'Datos y contorno', action: () => showNodeForm('building') });
+  opts.push({ key: '3', label: 'Zona segura', hint: 'Dibujar contorno', action: () => { const ll = ctx.latlng; map.closePopup(); startDrawing('zone', ll); } });
   return opts;
 }
 
 function nodeTypeOptions() {
-  return NODE_TYPES_MENU.map(type => ({
+  return NODE_TYPES_MENU.map((type, i) => ({
+    key: String(i + 1),
     label: NODE_TYPE_LABELS[type],
     dotClass: `type-dot type-${type}`,
     action: () => {
@@ -680,12 +720,12 @@ function showMenuStep(options, title, withBack = false) {
   h.textContent = title;
   root.appendChild(h);
 
-  options.forEach((o, i) => {
+  options.forEach((o) => {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'ctx-item';
     const k = document.createElement('kbd');
-    k.textContent = String(i + 1);
+    k.textContent = o.key;
     b.appendChild(k);
     if (o.dotClass) { const dot = document.createElement('span'); dot.className = o.dotClass; b.appendChild(dot); }
     const label = document.createElement('span');
@@ -708,14 +748,16 @@ function showMenuStep(options, title, withBack = false) {
   ctx.popup.update();
 }
 
+// Formulario de un nodo nuevo con datos (POI o edificio). En el edificio, al enviarlo empieza el dibujo del contorno.
 function showNodeForm(type) {
   ctx.step = 'form';
+  const isBld = type === 'building';
   const form = document.createElement('form');
   form.className = 'pop-edit';
   form.innerHTML = `
     <div class="ctx-title">Nuevo: ${escapeHtml(NODE_TYPE_LABELS[type])}</div>
     <label>Nombre</label>
-    <input name="name" type="text" class="form-control form-control-sm mb-2" maxlength="255" placeholder="Ej: Sala C-304">
+    <input name="name" type="text" class="form-control form-control-sm mb-2" maxlength="255" placeholder="${isBld ? 'Ej: Edificio A' : 'Ej: Sala C-304'}">
     <label>Ícono en la app</label>
     <input name="icon" type="text" class="form-control form-control-sm mb-2" maxlength="4" value="${escapeHtml(SYSTEM_TYPES[type].icon)}">
     <label>Horario</label>
@@ -727,14 +769,16 @@ function showNodeForm(type) {
     <div class="pop-actions">
       <span class="spacer"></span>
       <button type="button" class="btn btn-sm btn-secondary" data-cancel>Cancelar</button>
-      <button type="submit" class="btn btn-sm btn-accent" data-primary>Crear</button>
-    </div>`;
+      <button type="submit" class="btn btn-sm btn-accent" data-primary>${isBld ? 'Dibujar contorno' : 'Crear'}</button>
+    </div>
+    ${isBld ? '<div class="panel-meta mt-2">Este punto queda como acceso del edificio.</div>' : ''}`;
   form.addEventListener('submit', (ev) => {
     ev.preventDefault();
     const fields = Object.fromEntries(new FormData(form));
     const ll = ctx.latlng;
     map.closePopup();
-    createNode(type, ll, fields);
+    if (isBld) startDrawing('building', ll, fields);
+    else createNode(type, ll, fields);
   });
   form.querySelector('[data-cancel]').addEventListener('click', () => map.closePopup());
   ctx.popup.setContent(form);
@@ -742,10 +786,18 @@ function showNodeForm(type) {
   setTimeout(() => form.querySelector('input[name="name"]').focus(), 0);
 }
 
+// Repetir: el punto de ruta y la zona empiezan de inmediato; los nodos con datos y el edificio abren su formulario
 function repeatLast(latlng) {
   if (!lastCreated) return;
-  if (lastCreated.kind === 'node') createNode(lastCreated.type, latlng);
-  else startDrawing(lastCreated.kind, latlng);
+  const { kind, type } = lastCreated;
+  if (kind === 'zone' || (kind === 'node' && type === 'waypoint')) {
+    map.closePopup();
+    if (kind === 'zone') startDrawing('zone', latlng);
+    else createNode('waypoint', latlng);
+    return;
+  }
+  if (!ctx || !ctx.popup.isOpen()) openCreateMenu(latlng);
+  showNodeForm(kind === 'building' ? 'building' : type);
 }
 
 function createNode(type, latlng, fields = {}) {
@@ -830,15 +882,15 @@ function populateBuildingSelect(sel, selected = 'exterior') {
   sel.value = selected;
 }
 
-function startDrawing(kind, latlng) {
+function startDrawing(kind, latlng, fields = {}) {
   cancelEdge();
   clearSelection();
-  draw = { kind, access: null, accessMarker: null, vertices: [], preview: null };
+  draw = { kind, fields, access: null, accessMarker: null, vertices: [], preview: null };
   document.getElementById('map').classList.add('is-drawing');
 
   const bar = document.getElementById('draw-bar');
   document.getElementById('draw-title').textContent = kind === 'building' ? 'Nuevo edificio' : 'Nueva zona segura';
-  document.getElementById('draw-name').value = '';
+  document.getElementById('draw-name').value = fields.name || '';
   const bsel = document.getElementById('draw-building');
   bsel.hidden = kind !== 'zone';
   if (kind === 'zone') populateBuildingSelect(bsel, currentBuilding);
@@ -851,22 +903,22 @@ function startDrawing(kind, latlng) {
     draw.access = latlng;
     draw.accessMarker = L.marker(latlng, {
       interactive: false,
-      icon: L.divIcon({ className: 'graph-node type-building', html: SYSTEM_TYPES.building.icon, iconSize: [30, 30] }),
+      icon: L.divIcon({ className: 'graph-node type-building', html: escapeHtml((fields.icon || '').trim() || SYSTEM_TYPES.building.icon), iconSize: [30, 30] }),
     }).addTo(map);
   } else {
     addDrawVertex(latlng);
   }
   syncDraw();
   lastCreated = { kind };
-  setTimeout(() => document.getElementById('draw-name').focus(), 0);
+  if (kind === 'zone') setTimeout(() => document.getElementById('draw-name').focus(), 0);
 }
 
 function syncDraw() {
   if (!draw) return;
   if (draw.preview) { draw.preview.removeFrom(map); draw.preview = null; }
   const pts = draw.vertices.map(m => m.getLatLng());
-  if (pts.length === 2) draw.preview = L.polyline(pts, { color: '#888', dashArray: '4,4', interactive: false }).addTo(map);
-  else if (pts.length >= 3) draw.preview = L.polygon(pts, { color: '#888', dashArray: '4,4', fillOpacity: 0.1, interactive: false }).addTo(map);
+  if (pts.length === 2) draw.preview = L.polyline(pts, { color: themeVar('--map-draft'), weight: 2, dashArray: '4,4', interactive: false }).addTo(map);
+  else if (pts.length >= 3) draw.preview = L.polygon(pts, { color: themeVar('--map-draft'), weight: 2, dashArray: '4,4', fillOpacity: 0.12, interactive: false }).addTo(map);
   document.getElementById('draw-save').disabled = pts.length < 3;
 }
 
@@ -910,6 +962,7 @@ function saveDrawing() {
   }
   const kind = draw.kind;
   const access = draw.access;
+  const fields = draw.fields || {};
   const name = document.getElementById('draw-name').value.trim() || 'Sin nombre';
   const buildingSel = document.getElementById('draw-building').value;
   const pts = draw.vertices.map(m => m.getLatLng());
@@ -920,8 +973,9 @@ function saveDrawing() {
     if (kind === 'building') {
       const nodeId = crypto.randomUUID();
       createNodeObject({
-        id: nodeId, type: 'building', name, icon: SYSTEM_TYPES.building.icon,
+        id: nodeId, type: 'building', name, icon: (fields.icon || '').trim() || SYSTEM_TYPES.building.icon,
         lat: access.lat, lng: access.lng, floor: currentFloor, building: 'exterior', piso_min: 1, piso_max: 4,
+        horario: (fields.horario || '').trim(), descripcion: (fields.descripcion || '').trim(), link_derivacion: (fields.link || '').trim(),
       });
       createZoneObject({ id: crypto.randomUUID(), building: nodeId, name, tags: [ZONE_KINDS.edificio.tag], color: ZONE_KINDS.edificio.color, geojson });
       updateBuildingSelector();
@@ -1020,6 +1074,7 @@ function cancelVertexEditing() {
   endVertexEditing();
   undoStack.pop(); // la entrada guardada al empezar ya no corresponde a ningún cambio
   updateHistoryButtons();
+  markDirty(); // vuelve a comparar: si el contorno quedó como al cargar, desaparece el aviso
 }
 
 // =============================================================================
@@ -1220,7 +1275,7 @@ window.saveEdgeEdit = function (id) {
   const esEscalera = document.getElementById('pop-es-escalera').checked;
   commit(() => {
     e.es_escalera = esEscalera;
-    e.line.setStyle({ color: e.es_escalera ? STAIRS_COLOR : EDGE_COLOR });
+    e.line.setStyle({ color: edgeColor(e) });
   });
   map.closePopup();
 };
@@ -1303,7 +1358,7 @@ function renderMapNodes() {
     if (fn && tn && (fn.floor === currentFloor || tn.floor === currentFloor)) {
       e.line.addTo(map);
       e.line.setStyle({
-        color: e.es_escalera ? STAIRS_COLOR : EDGE_COLOR,
+        color: edgeColor(e),
         dashArray: fn.floor !== tn.floor ? '5, 10' : null,
         weight: selection?.kind === 'edge' && selection.id === e.id ? 6 : 3,
       });

@@ -2,6 +2,10 @@
    El tema se decide en base.html (preferencia guardada o ajuste del sistema) con data-theme en <html>.
    Oscuro es el valor por defecto; [data-theme="light"] redefine solo los colores. */
 :root {
+  /* Dibujo sobre el mapa */
+  --map-edge: #4a9eff;
+  --map-stairs: #f5a623;
+  --map-draft: #9aa7b8;
   --naviusm-bg: #0c1520;
   --naviusm-surface: #131f2e;
   --naviusm-surface2: #1a2a3d;
@@ -25,6 +29,9 @@
 }
 
 :root[data-theme="light"] {
+  --map-edge: #1456c4;
+  --map-stairs: #c76a00;
+  --map-draft: #3d4a5c;
   --naviusm-bg: #eef1f5;
   --naviusm-surface: #ffffff;
   --naviusm-surface2: #f4f6f9;
@@ -448,11 +455,11 @@ select option {
 .legend-line {
   display: inline-block;
   width: 26px;
-  border-top: 3px solid #4a9eff;
+  border-top: 3px solid var(--map-edge);
 }
 
 .legend-line.legend-stairs {
-  border-top-color: #f5a623;
+  border-top-color: var(--map-stairs);
 }
 
 .legend-line.legend-dashed {
@@ -911,4 +918,58 @@ kbd {
 
 .help-grid dd {
   margin: 0;
+}
+
+/* ===== Editor: estado del mapa (esquina superior derecha) ===== */
+.map-status {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 1001;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.map-status .status-pill,
+.map-status .dirty-badge {
+  box-shadow: 0 4px 12px var(--naviusm-shadow);
+}
+
+.map-status .dirty-badge {
+  background: var(--naviusm-surface);
+  border: 1px solid var(--naviusm-accent);
+  border-radius: 20px;
+  padding: 4px 12px;
+}
+
+.map-status .dirty-badge[hidden] {
+  display: none;
+}
+
+/* ===== Mapa claro: más contraste en nodos y vértices ===== */
+:root[data-theme="light"] .graph-node {
+  box-shadow: 0 0 0 1px rgba(11, 19, 32, 0.55), 0 2px 6px rgba(11, 19, 32, 0.35);
+}
+
+:root[data-theme="light"] .graph-node.type-waypoint {
+  background: #1d4ed8;
+  border-color: #fff;
+}
+
+:root[data-theme="light"] .graph-node:not(.type-waypoint):not(.type-user) {
+  background: #2e1065;
+  border-color: #7c3aed;
+}
+
+:root[data-theme="light"] .leaflet-tooltip.map-hint {
+  color: #8a4b00;
+  border-color: #c76a00;
+}
+
+/* Sin anillo de foco del navegador sobre todo el mapa al hacer clic en él */
+#map.leaflet-container:focus {
+  outline: none;
 }

@@ -43,17 +43,21 @@
   </div>
 
   <div class="topbar-right">
-    <span id="dirty-badge" class="dirty-badge" hidden>Cambios sin publicar</span>
-    <div class="status-pill" role="status" aria-live="polite">
-      <div class="s-dot" id="sdot"></div>
-      <span id="status-txt">Listo</span>
-    </div>
     <button class="btn-ed btn-ed-accent" onclick="publishToServer()" title="Publicar el mapa (Ctrl/Cmd + S)">Publicar mapa</button>
   </div>
 </div>
 
 <div class="main" style="position: relative;">
   <div id="map"></div>
+
+  <!-- Estado del mapa: esquina superior derecha, cada píldora alineada a la derecha por separado -->
+  <div class="map-status">
+    <div class="status-pill" role="status" aria-live="polite">
+      <div class="s-dot" id="sdot"></div>
+      <span id="status-txt">Listo</span>
+    </div>
+    <span id="dirty-badge" class="dirty-badge" hidden>Cambios sin publicar</span>
+  </div>
 
   <!-- Panel flotante: lugar visible, historial, leyenda y ayuda -->
   <div id="map-panel" class="map-panel">
@@ -141,8 +145,10 @@
             <h6>Crear</h6>
             <dl>
               <dt>Clic en el mapa</dt><dd>Abre el menú para elegir qué crear</dd>
-              <dt><kbd>1</kbd> ... <kbd>9</kbd></dt><dd>Elegir una opción del menú</dd>
-              <dt><kbd>Shift</kbd> + clic</dt><dd>Repetir lo último que creaste, sin menú</dd>
+              <dt><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></dt><dd>En el menú: Nodo, Edificio, Zona segura (siempre las mismas teclas)</dd>
+              <dt><kbd>1</kbd> ... <kbd>5</kbd></dt><dd>En "Nodo": elegir el tipo</dd>
+              <dt><kbd>0</kbd></dt><dd>En el menú: repetir lo último que creaste</dd>
+              <dt><kbd>Shift</kbd> + clic</dt><dd>Repetir lo último que creaste; si tiene datos, abre su formulario</dd>
               <dt><kbd>W</kbd></dt><dd>Activar o desactivar "Puntos de ruta": cada clic crea un punto de ruta</dd>
               <dt>Clic en un nodo</dt><dd>Empieza una conexión; clic en otro nodo la termina</dd>
               <dt><kbd>E</kbd></dt><dd>Las conexiones nuevas se marcan como escalera</dd>
@@ -177,7 +183,7 @@
           <section>
             <h6>Dibujar edificios y zonas</h6>
             <dl>
-              <dt>Clic</dt><dd>Agregar un punto (en edificios, el primer clic marca el acceso)</dd>
+              <dt>Clic</dt><dd>Agregar un punto (en edificios, el punto donde abriste el menú es el acceso)</dd>
               <dt><kbd>Ctrl/Cmd</kbd> + <kbd>Z</kbd></dt><dd>Quitar el último punto</dd>
               <dt><kbd>Enter</kbd></dt><dd>Guardar</dd>
               <dt><kbd>Esc</kbd></dt><dd>Cancelar el dibujo</dd>
@@ -195,5 +201,5 @@
     sedesInfo: {{ sedes_json | tojson | safe }}
   };
 </script>
-<script src="{{ url_for('static', path='js/admin.js') }}?v=0.5.0"></script>
+<script src="{{ url_for('static', path='js/admin.js') }}?v=0.5.1"></script>
 {% endblock %}
