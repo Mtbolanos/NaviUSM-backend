@@ -35,7 +35,7 @@ async function searchLocation() {
 
   const btn = document.querySelector('#ns-search + button');
   const resDiv = document.getElementById('ns-search-results');
-  btn.textContent = "⏳"; btn.disabled = true;
+  btn.textContent = "Buscando..."; btn.disabled = true;
 
   try {
     const center = nsMap.getCenter();

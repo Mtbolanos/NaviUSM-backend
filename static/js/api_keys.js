@@ -5,7 +5,7 @@ function escapeHtml(value) {
 }
 
 function fmtFecha(iso) {
-  return iso ? new Date(iso).toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' }) : '—';
+  return iso ? new Date(iso).toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' }) : '-';
 }
 
 function estadoKey(k) {
@@ -27,7 +27,7 @@ async function cargarKeys() {
     tbody.innerHTML = keys.map(k => `
       <tr>
         <td class="fw-bold">${escapeHtml(k.nombre)}</td>
-        <td style="font-family: var(--naviusm-mono);">${escapeHtml(k.prefijo)}…</td>
+        <td style="font-family: var(--naviusm-mono);">${escapeHtml(k.prefijo)}...</td>
         <td>${fmtFecha(k.created_at)}</td>
         <td>${fmtFecha(k.expires_at)}</td>
         <td>${fmtFecha(k.last_used_at)}</td>
