@@ -45,7 +45,8 @@
   <!-- Toolbar flotante para edición de vértices -->
   <div id="vertex-edit-toolbar"
     style="display:none; position:absolute; top:20px; left:50%; transform:translateX(-50%); z-index:9999; background: var(--naviusm-surface); padding: 10px 20px; border-radius: 8px; border: 1px solid var(--naviusm-border); box-shadow: 0 4px 12px rgba(0,0,0,0.5);">
-    <span style="color: white; font-size: 13px; font-weight: bold; margin-right: 15px;">Moviendo vértices...</span>
+    <span style="color: white; font-size: 13px; font-weight: bold; margin-right: 15px;">Editando contorno · arrastra
+      para mover · clic para agregar · clic derecho para quitar</span>
     <button class="btn btn-sm btn-success" style="background: var(--naviusm-green); border: none; font-weight: bold;"
       onclick="finishVertexEditing()">✅ Terminar Modificación</button>
   </div>
@@ -164,7 +165,8 @@
 
     <div class="tab-pane" id="panel-zonaseg" style="display: none;">
       <div class="sec-hdr">Dibujar Zona Segura</div>
-      <p class="text-muted mb-3" style="font-size: 11px;">Haz clic en el mapa para marcar los vértices. <b>Para editar
+      <p class="text-muted mb-3" style="font-size: 11px;">Haz clic en el mapa para marcar los vértices. Clic derecho
+        sobre un vértice para quitarlo. <b>Para editar
           zonas existentes, haz clic en ellas en el mapa.</b></p>
       <div class="field">
         <label>NOMBRE</label>
@@ -191,7 +193,8 @@
         <strong>Paso 1:</strong> Haz clic exactamente donde está el acceso principal del edificio.
       </div>
       <div class="ui-guide-box" id="bld-guide-step2" style="display: none; border-color: var(--naviusm-green);">
-        <strong>Paso 2:</strong> Haz clic en el mapa para marcar las esquinas del edificio.
+        <strong>Paso 2:</strong> Haz clic en el mapa para marcar las esquinas del edificio. Clic derecho sobre una
+        esquina para quitarla.
       </div>
 
       <div class="field" style="margin-top: 15px;">
@@ -214,5 +217,5 @@
     sedesInfo: {{ sedes_json | tojson | safe }}
     };
 </script>
-<script src="{{ url_for('static', path='js/admin.js') }}?v=0.4.3"></script>
+<script src="{{ url_for('static', path='js/admin.js') }}?v=0.4.4"></script>
 {% endblock %}
