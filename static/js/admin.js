@@ -70,7 +70,8 @@ let searchResults = [], searchIndex = -1;
 let reviewOpen = false;
 let hintsOn = readPref('naviusm-editor-hints', '1') === '1';
 let draftTimer = null;
-const DRAFT_VERSION = 1;
+const DRAFT_VERSION = 2;        // v2 guarda también la base (el mapa publicado sobre el que se hicieron los cambios)
+let mergeSession = null;        // combinación en curso tras un 409: conflictos por resolver
 
 // =============================================================================
 // Utilidades
@@ -307,14 +308,18 @@ function draftKey(sedeId) {
 }
 
 // La clave y el contenido se fijan al programar el guardado, por si cambia la sede antes de escribir
+// El borrador guarda los cambios y la base sobre la que se hicieron, para poder combinarlos después
+// con lo que otros publiquen. Durante una combinación no se toca: conserva "lo mío" original.
 function scheduleDraftSave(json) {
   clearTimeout(draftTimer);
-  const sedeId = currentSedeId, dirty = hasUnsavedChanges, base = hashText(cleanState || '');
+  if (mergeSession) return;
+  const sedeId = currentSedeId, dirty = hasUnsavedChanges, base = cleanState || 'null', baseVersion = snapshotVersion ?? 'null';
   if (!sedeId) return;
   draftTimer = setTimeout(() => {
     try {
       if (!dirty) { localStorage.removeItem(draftKey(sedeId)); return; }
-      localStorage.setItem(draftKey(sedeId), `{"v":${DRAFT_VERSION},"savedAt":${Date.now()},"base":"${base}","state":${json}}`);
+      localStorage.setItem(draftKey(sedeId),
+        `{"v":${DRAFT_VERSION},"savedAt":${Date.now()},"baseVersion":${baseVersion},"base":${base},"state":${json}}`);
     } catch (_) { /* sin espacio o almacenamiento bloqueado: el borrador es solo una ayuda */ }
   }, 800);
 }
@@ -327,18 +332,28 @@ function clearDraft(sedeId) {
 async function offerDraftRecovery(sedeId) {
   let draft = null;
   try { draft = JSON.parse(localStorage.getItem(draftKey(sedeId)) || 'null'); } catch (_) { draft = null; }
-  if (!draft || draft.v !== DRAFT_VERSION || !draft.state) return;
-  if (JSON.stringify(draft.state) === cleanState) { clearDraft(sedeId); return; }
+  if (!draft || ![1, 2].includes(draft.v) || !draft.state) return;
+  const draftState = canonState(draft.state);
+  if (JSON.stringify(draftState) === cleanState) { clearDraft(sedeId); return; }
 
   const when = new Date(draft.savedAt).toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' });
-  const changed = draft.base !== hashText(cleanState || '');
+  // v2 con base: si después se publicó otra versión, los cambios se combinan con ella en vez de reemplazarla
+  const canMerge = draft.v === 2 && draft.base;
+  const changed = canMerge ? draft.baseVersion !== snapshotVersion : draft.base !== hashText(cleanState || '');
   const msg = `Hay cambios sin publicar de esta sede guardados en este navegador (${when}).`
-    + (changed ? '\nEl mapa publicado cambió después de ese borrador: si lo recuperas y publicas, reemplazará lo publicado.' : '')
+    + (changed && canMerge ? '\nEl mapa se publicó de nuevo después de ese borrador: tus cambios se combinarán con la versión actual.' : '')
+    + (changed && !canMerge ? '\nEl mapa publicado cambió después de ese borrador: si lo recuperas y publicas, reemplazará lo publicado.' : '')
     + '\n¿Recuperarlos? Si eliges Cancelar, el borrador se descarta.';
   if (!(await window.uiConfirm(msg, 'Recuperar cambios'))) { clearDraft(sedeId); return; }
   if (currentSedeId !== sedeId) return; // se cambió de sede mientras estaba abierto el diálogo
+
+  if (changed && canMerge) {
+    const result = startMerge(canonState(draft.base), draftState, JSON.parse(cleanState), snapshotVersion, { keepHistory: true });
+    if (result === 'merged') setStatus('Cambios recuperados y combinados con la versión publicada', 'ok');
+    return;
+  }
   pushHistory(); // deshacer vuelve al mapa publicado
-  restoreState(draft.state);
+  restoreState(draftState);
   setStatus('Cambios recuperados del borrador', 'ok');
 }
 
@@ -407,6 +422,7 @@ function centrarMapaEnSede() {
 // =============================================================================
 function setMode(m, { force = false } = {}) {
   if (m === mode && !force) return;
+  if (mergeSession && m !== 'view') { setStatus('Primero resuelve los cambios combinados', 'warn'); return; }
   if (editingZoneId) finishVertexEditing();
   if (draw) cancelDrawing();
   cancelEdge();
@@ -554,16 +570,43 @@ function handleEscape() {
 // Historial (deshacer / rehacer)
 // Antes de cada cambio se guarda una copia serializable del mapa; deshacer la restaura.
 // =============================================================================
+// Forma canónica de cada elemento: siempre las mismas claves, en el mismo orden y con los mismos valores
+// por defecto. Así dos copias del mismo elemento se comparan como texto (deshacer, cambios, combinación).
+function canonNode(d) {
+  const sys = SYSTEM_TYPES[d.type] || SYSTEM_TYPES.waypoint;
+  const c = {
+    id: d.id, type: d.type, name: d.name ?? '', icon: d.icon || sys.icon,
+    lat: Number(d.lat), lng: Number(d.lng), floor: parseInt(d.floor, 10) || 1, building: d.building || 'exterior',
+  };
+  if (d.type === 'building') Object.assign(c, pisosFromData(d));
+  if (isPoiType(d.type)) {
+    c.horario = d.horario || '';
+    c.descripcion = d.descripcion || '';
+    c.link_derivacion = d.link_derivacion || '';
+  }
+  return c;
+}
+
+function canonEdge(d) {
+  return { id: d.id, from: d.from, to: d.to, weight: Number(d.weight), es_escalera: !!d.es_escalera };
+}
+
+function canonZone(d) {
+  return {
+    id: d.id, building: d.building || null, name: d.name ?? '', tags: [...(d.tags || [])],
+    color: d.color ?? null, geojson: JSON.parse(JSON.stringify(d.geojson)),
+  };
+}
+
+function canonState(st) {
+  return { nodes: st.nodes.map(canonNode), edges: st.edges.map(canonEdge), zones: st.zones.map(canonZone) };
+}
+
 function serializeState() {
   return {
-    nodes: nodes.map(n => ({
-      id: n.id, type: n.type, name: n.name, icon: n.icon, lat: n.latlng.lat, lng: n.latlng.lng,
-      floor: n.floor, building: n.building,
-      pisos: n.pisos ? n.pisos.map(p => ({ ...p })) : undefined, acceso: n.acceso,
-      horario: n.horario, descripcion: n.descripcion, link_derivacion: n.link_derivacion,
-    })),
-    edges: edges.map(e => ({ id: e.id, from: e.from, to: e.to, weight: e.weight, es_escalera: !!e.es_escalera })),
-    zones: zones.map(z => ({ id: z.id, building: z.building, name: z.name, tags: [...z.tags], color: z.color, geojson: JSON.parse(JSON.stringify(z.geojson)) })),
+    nodes: nodes.map(n => canonNode({ ...n, lat: n.latlng.lat, lng: n.latlng.lng })),
+    edges: edges.map(canonEdge),
+    zones: zones.map(canonZone),
   };
 }
 
@@ -591,6 +634,7 @@ function commit(fn) {
 }
 
 function undo() {
+  if (mergeSession) { setStatus('Primero resuelve los cambios combinados', 'warn'); return; }
   if (editingZoneId) { setStatus('Termina o cancela la edición del contorno', 'warn'); return; }
   if (draw) { removeLastDrawVertex(); return; }
   const prev = undoStack.pop();
@@ -601,6 +645,7 @@ function undo() {
 }
 
 function redo() {
+  if (mergeSession) { setStatus('Primero resuelve los cambios combinados', 'warn'); return; }
   if (editingZoneId || draw) { setStatus('Termina o cancela lo que estás dibujando', 'warn'); return; }
   const next = redoStack.pop();
   if (!next) { setStatus('Nada que rehacer', 'ok'); return; }
@@ -645,7 +690,8 @@ function buildFromState(state) {
   state.zones.forEach(createZoneObject);
 }
 
-function createNodeObject(d) {
+function createNodeObject(raw) {
+  const d = canonNode(raw);
   const sys = SYSTEM_TYPES[d.type] || SYSTEM_TYPES.waypoint;
   const el = document.createElement('div');
   el.className = `graph-node type-${d.type}`;
@@ -662,12 +708,12 @@ function createNodeObject(d) {
   });
   setNodeTooltip(marker, d.name);
 
-  const node = { id: d.id, type: d.type, name: d.name, icon, latlng, floor: d.floor, building: d.building || 'exterior', marker, el };
-  if (d.type === 'building') Object.assign(node, pisosFromData(d));
+  const node = { id: d.id, type: d.type, name: d.name, icon, latlng, floor: d.floor, building: d.building, marker, el };
+  if (d.type === 'building') { node.pisos = d.pisos; node.acceso = d.acceso; }
   if (isPoiType(d.type)) {
-    node.horario = d.horario || '';
-    node.descripcion = d.descripcion || '';
-    node.link_derivacion = d.link_derivacion || '';
+    node.horario = d.horario;
+    node.descripcion = d.descripcion;
+    node.link_derivacion = d.link_derivacion;
   }
 
   marker.on('click', (ev) => { L.DomEvent.stopPropagation(ev); onNodeClick(node.id, ev); });
@@ -729,8 +775,9 @@ function applyThemeToMap() {
   renderMapNodes();
 }
 
-function createZoneObject(d) {
-  const zone = { id: d.id, building: d.building || null, name: d.name, tags: d.tags || [], color: d.color, geojson: d.geojson, polygon: null };
+function createZoneObject(raw) {
+  const d = canonZone(raw);
+  const zone = { id: d.id, building: d.building, name: d.name, tags: d.tags, color: d.color, geojson: d.geojson, polygon: null };
   zone.polygon = L.geoJSON(zone.geojson, { style: zoneStyle(zone) }).addTo(map);
   // Las zonas van bajo las conexiones: en el canvas recibe el clic la figura de más arriba,
   // y una zona dibujada después taparía las conexiones que están dentro de ella
@@ -821,7 +868,7 @@ function deleteHoveredOrSelected() {
 }
 
 function deleteElement(kind, id) {
-  if (mode === 'view') return;
+  if (mode === 'view' || mergeSession) return;
   if (map) map.closePopup();
   if (kind === 'node') {
     const n = nodes.find(x => x.id === id);
@@ -2004,6 +2051,296 @@ function cursorHintText() {
 }
 
 // =============================================================================
+// Combinación de cambios ("como git pull --rebase"): si al publicar alguien publicó antes,
+// se descarga la versión actual y se vuelven a aplicar encima solo los cambios propios,
+// elemento por elemento (nodo, conexión, zona; un edificio es su nodo, con sus pisos).
+// Lo que cambiaron ambos, o lo que queda inválido al combinar, se resuelve en un panel.
+// =============================================================================
+const MERGE_KINDS = ['nodes', 'edges', 'zones'];
+const KIND_LABEL = { nodes: 'Nodo', edges: 'Conexión', zones: 'Zona' };
+
+function mergeStates(base, mine, theirs) {
+  const maps = {}, conflicts = [];
+  MERGE_KINDS.forEach(kind => {
+    const B = new Map(base[kind].map(x => [x.id, x]));
+    const M = new Map(mine[kind].map(x => [x.id, x]));
+    const T = new Map(theirs[kind].map(x => [x.id, x]));
+    const R = new Map(T); // se parte de lo publicado; lo agregado por mí queda al final
+    const key = (x) => (x ? JSON.stringify(x) : null);
+    new Set([...B.keys(), ...M.keys()]).forEach(id => {
+      const b = B.get(id), m = M.get(id), t = T.get(id);
+      const bk = key(b), mk = key(m), tk = key(t);
+      if (mk === bk) return;              // no lo toqué: queda lo publicado
+      if (mk === tk) return;              // ambos llegamos a lo mismo
+      if (tk === bk) {                    // solo yo lo cambié: se aplica lo mío
+        if (m) R.set(id, m); else R.delete(id);
+        return;
+      }
+      conflicts.push({ kind, id, mine: m || null, theirs: t || null, choice: null });
+    });
+    maps[kind] = R;
+  });
+  return { maps, conflicts };
+}
+
+function stateFromMaps(maps) {
+  return { nodes: [...maps.nodes.values()], edges: [...maps.edges.values()], zones: [...maps.zones.values()] };
+}
+
+// Problemas que puede dejar una combinación aunque no haya conflictos directos
+function integrityIssues(st) {
+  const ids = new Set(st.nodes.map(n => n.id));
+  const blds = new Map(st.nodes.filter(n => n.type === 'building').map(b => [b.id, b]));
+  const issues = [];
+  st.edges.forEach(e => {
+    if (!ids.has(e.from) || !ids.has(e.to)) issues.push({ type: 'edge-orphan', kind: 'edges', id: e.id });
+  });
+  st.nodes.forEach(n => {
+    if (n.type === 'building' || n.building === 'exterior') return;
+    const b = blds.get(n.building);
+    if (!b) issues.push({ type: 'node-nobuilding', kind: 'nodes', id: n.id });
+    else if (!b.pisos.some(p => p.numero === n.floor)) issues.push({ type: 'node-nofloor', kind: 'nodes', id: n.id });
+  });
+  st.zones.forEach(z => {
+    if (z.building && !blds.has(z.building)) issues.push({ type: 'zone-nobuilding', kind: 'zones', id: z.id });
+  });
+  return issues;
+}
+
+const ISSUE_TEXT = {
+  'edge-orphan': ['Une un nodo que ya no existe', 'Restaurar el nodo', 'Descartar la conexión'],
+  'node-nobuilding': ['Su edificio fue eliminado', 'Pasar al exterior', 'Descartar el nodo'],
+  'node-nofloor': ['Su piso ya no existe en el edificio', 'Mover al piso de acceso', 'Descartar el nodo'],
+  'zone-nobuilding': ['Su edificio fue eliminado', 'Pasar al exterior', 'Descartar la zona'],
+};
+
+// a: primera opción (conservar adaptando), b: segunda (descartar)
+function resolveIssue(st, issue, option) {
+  const list = st[issue.kind];
+  const idx = list.findIndex(x => x.id === issue.id);
+  if (idx === -1) return;
+  if (option === 'b') { list.splice(idx, 1); return; }
+  const el = list[idx];
+  if (issue.type === 'edge-orphan') {
+    const have = new Set(st.nodes.map(n => n.id));
+    [el.from, el.to].filter(id => !have.has(id)).forEach(id => {
+      const n = mergeSession.mineNodes.get(id) || mergeSession.baseNodes.get(id);
+      if (n) st.nodes.push(n); else list.splice(list.indexOf(el), 1);
+    });
+  } else if (issue.type === 'node-nobuilding') {
+    list[idx] = canonNode({ ...el, building: 'exterior', floor: 1 });
+  } else if (issue.type === 'node-nofloor') {
+    const b = st.nodes.find(n => n.id === el.building);
+    list[idx] = canonNode({ ...el, floor: b.acceso });
+  } else if (issue.type === 'zone-nobuilding') {
+    list[idx] = canonZone({ ...el, building: null });
+  }
+}
+
+// Inicia la combinación. Devuelve 'merged' si se aplicó sin preguntar nada, o 'conflicts' si abrió el panel.
+function startMerge(base, mine, theirs, theirsVersion, { keepHistory = false } = {}) {
+  const { maps, conflicts } = mergeStates(canonState(base), canonState(mine), canonState(theirs));
+  mergeSession = {
+    maps, conflicts, issues: [], phase: 'conflicts',
+    mineNodes: new Map(mine.nodes.map(n => [n.id, canonNode(n)])),
+    baseNodes: new Map(base.nodes.map(n => [n.id, canonNode(n)])),
+    working: null,
+  };
+  // La base pasa a ser lo publicado ahora: el historial anterior no corresponde a esta base
+  cleanState = JSON.stringify(canonState(theirs));
+  snapshotVersion = theirsVersion;
+  originalNodes = new Set(theirs.nodes.filter(n => isPoiType(n.type) && n.type !== 'building').map(n => n.id));
+  originalBuildings = new Set(theirs.nodes.filter(n => n.type === 'building').map(n => n.id));
+  if (keepHistory) pushHistory(); else resetHistory();
+
+  advanceMerge();
+  if (!mergeSession.conflicts.length && !mergeSession.issues.length) {
+    finishMerge();
+    return 'merged';
+  }
+  setMode('view', { force: true });
+  document.getElementById('merge-panel').hidden = false;
+  renderMergePanel();
+  setStatus('Hay cambios que resolver antes de publicar', 'warn', { sticky: true });
+  return 'conflicts';
+}
+
+// Recalcula el mapa con las elecciones hechas; cuando no quedan conflictos, revisa la integridad
+function advanceMerge() {
+  const ms = mergeSession;
+  const maps = { nodes: new Map(ms.maps.nodes), edges: new Map(ms.maps.edges), zones: new Map(ms.maps.zones) };
+  ms.conflicts.forEach(c => {
+    const pick = c.choice === 'mine' ? c.mine : c.theirs; // sin elegir aún: se muestra lo publicado
+    if (pick) maps[c.kind].set(c.id, pick); else maps[c.kind].delete(c.id);
+  });
+  let st = stateFromMaps(maps);
+  if (ms.conflicts.every(c => c.choice)) {
+    ms.phase = 'issues';
+    (ms.issueChoices || []).forEach(({ issue, option }) => resolveIssue(st, issue, option));
+    ms.issues = integrityIssues(st);
+  }
+  ms.working = st;
+  if (map) map.closePopup();
+  clearLayers();
+  buildFromState(st);
+  updateBuildingSelector();
+  renderMapNodes();
+  markDirty();
+}
+
+function chooseConflict(i, choice) {
+  mergeSession.conflicts[i].choice = choice;
+  advanceMerge();
+  renderMergePanel();
+}
+
+function chooseAllConflicts(choice) {
+  mergeSession.conflicts.forEach(c => { c.choice = choice; });
+  advanceMerge();
+  renderMergePanel();
+}
+
+function chooseIssue(i, option) {
+  const ms = mergeSession;
+  ms.issueChoices = [...(ms.issueChoices || []), { issue: ms.issues[i], option }];
+  advanceMerge();
+  renderMergePanel();
+}
+
+// Volver a los conflictos para cambiar lo elegido (descarta las decisiones sobre elementos inválidos)
+function backToConflicts() {
+  mergeSession.phase = 'conflicts';
+  mergeSession.issueChoices = [];
+  mergeSession.conflicts.forEach(c => { c.choice = null; });
+  advanceMerge();
+  renderMergePanel();
+}
+
+function finishMerge() {
+  mergeSession = null;
+  document.getElementById('merge-panel').hidden = true;
+  restoreBaseStatus();
+  markDirty();
+}
+
+function elementLabel(kind, el) {
+  if (!el) return KIND_LABEL[kind];
+  if (kind === 'nodes') return `${NODE_TYPE_LABELS[el.type] || el.type}: ${el.name || 'sin nombre'}`;
+  if (kind === 'zones') return `Zona: ${el.name || 'sin nombre'}`;
+  const a = mergeSession.mineNodes.get(el.from) || mergeSession.working.nodes.find(n => n.id === el.from);
+  const b = mergeSession.mineNodes.get(el.to) || mergeSession.working.nodes.find(n => n.id === el.to);
+  return `Conexión: ${a?.name || '?'} - ${b?.name || '?'}`;
+}
+
+function conflictText(c) {
+  if (!c.mine) return 'Lo eliminaste y otra persona lo modificó';
+  if (!c.theirs) return 'Lo modificaste y otra persona lo eliminó';
+  return 'Lo modificaste y otra persona también';
+}
+
+// Posición aproximada de un elemento (en cualquiera de sus versiones), para ubicarlo
+function locateMergeItem(kind, versions) {
+  const el = versions.find(Boolean);
+  if (!el) return;
+  if (kind === 'nodes') {
+    if (nodes.some(n => n.id === el.id)) { locateNodes([el.id]); return; }
+    map.setView([el.lat, el.lng], Math.max(map.getZoom(), 19));
+    showMapHint(L.latLng(el.lat, el.lng), 'Aquí estaba');
+    return;
+  }
+  if (kind === 'edges') {
+    const ends = [el.from, el.to].map(id => nodes.find(n => n.id === id)?.id).filter(Boolean);
+    if (ends.length) locateNodes(ends);
+    return;
+  }
+  const ring = el.geojson?.coordinates?.[0];
+  if (ring?.length) map.fitBounds(L.latLngBounds(ring.map(([lng, lat]) => [lat, lng])), { padding: [60, 60], maxZoom: 20 });
+}
+
+function renderMergePanel() {
+  const ms = mergeSession;
+  const body = document.getElementById('merge-body');
+  body.innerHTML = '';
+  const pendingConf = ms.conflicts.filter(c => !c.choice).length;
+  document.getElementById('merge-summary').textContent = ms.phase === 'conflicts'
+    ? `Otra persona publicó el mapa mientras editabas. Tus demás cambios ya se combinaron; elige qué conservar en ${pendingConf === 1 ? 'este caso' : `estos ${pendingConf} casos`}.`
+    : (ms.issues.length
+      ? `Al combinar quedaron ${ms.issues.length === 1 ? 'un elemento inválido' : `${ms.issues.length} elementos inválidos`}. Elige qué hacer con cada uno.`
+      : 'Listo: ya puedes publicar.');
+  document.getElementById('merge-bulk').hidden = ms.phase !== 'conflicts';
+  document.getElementById('merge-back').hidden = !(ms.phase === 'issues' && ms.conflicts.length);
+  document.getElementById('merge-publish').disabled = !(ms.phase === 'issues' && !ms.issues.length);
+
+  const item = (title, text, buttons, locate) => {
+    const box = document.createElement('div');
+    box.className = 'merge-item';
+    const h = document.createElement('div');
+    h.className = 'merge-item-title';
+    h.textContent = title;
+    const p = document.createElement('div');
+    p.className = 'review-help';
+    p.textContent = text;
+    const actions = document.createElement('div');
+    actions.className = 'merge-item-actions';
+    buttons.forEach(({ label, active, onClick }) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'btn btn-sm ' + (active ? 'btn-accent' : 'btn-outline-secondary');
+      b.textContent = label;
+      b.addEventListener('click', onClick);
+      actions.appendChild(b);
+    });
+    const loc = document.createElement('button');
+    loc.type = 'button';
+    loc.className = 'btn btn-sm btn-link';
+    loc.textContent = 'Ubicar';
+    loc.addEventListener('click', locate);
+    actions.appendChild(loc);
+    box.append(h, p, actions);
+    body.appendChild(box);
+  };
+
+  if (ms.phase === 'conflicts') {
+    ms.conflicts.forEach((c, i) => item(
+      elementLabel(c.kind, c.mine || c.theirs), conflictText(c),
+      [
+        { label: c.mine ? 'Mantener lo mío' : 'Eliminarlo', active: c.choice === 'mine', onClick: () => chooseConflict(i, 'mine') },
+        { label: c.theirs ? 'Mantener lo publicado' : 'Dejarlo eliminado', active: c.choice === 'theirs', onClick: () => chooseConflict(i, 'theirs') },
+      ],
+      () => locateMergeItem(c.kind, [c.mine, c.theirs]),
+    ));
+  } else {
+    ms.issues.forEach((issue, i) => {
+      const el = ms.working[issue.kind].find(x => x.id === issue.id);
+      const [text, a, b] = ISSUE_TEXT[issue.type];
+      item(elementLabel(issue.kind, el), text,
+        [{ label: a, onClick: () => chooseIssue(i, 'a') }, { label: b, onClick: () => chooseIssue(i, 'b') }],
+        () => locateMergeItem(issue.kind, [el]));
+    });
+  }
+}
+
+async function publishMerged() {
+  if (!mergeSession || mergeSession.phase !== 'issues' || mergeSession.issues.length) return;
+  finishMerge();
+  publishToServer();
+}
+
+// Tras un 409: descarga lo publicado y combina. Devuelve 'merged', 'conflicts' o 'error'.
+async function rebaseOnLatest(sedeId) {
+  try {
+    const res = await fetch(BASE_URL + `/admin/api/sedes/${sedeId}/snapshot`);
+    const version = parseInt(res.headers.get('X-Snapshot-Version'), 10);
+    if (!res.ok) return 'error';
+    const theirs = snapshotToState(await res.json());
+    return startMerge(JSON.parse(cleanState), serializeState(), theirs, version);
+  } catch (err) {
+    console.error(err);
+    return 'error';
+  }
+}
+
+// =============================================================================
 // Carga y publicación
 // =============================================================================
 // Cambio de sede desde el selector: pedir confirmación si hay cambios sin publicar
@@ -2020,6 +2357,7 @@ async function onSedeChange() {
 }
 
 async function loadFromServer() {
+  if (mergeSession) finishMerge(); // al cambiar de sede, la combinación pendiente se abandona (el borrador la conserva)
   setMode('view', { force: true }); // al cargar o cambiar de sede siempre se parte en modo Ver
   const sedeId = document.getElementById('sede-selector')?.value;
   if (!sedeId) return;
@@ -2070,6 +2408,17 @@ function loadGraph(data) {
   resetHistory();
   lastCreated = null;
 
+  const st = snapshotToState(data);
+  originalNodes = new Set(st.nodes.filter(n => isPoiType(n.type) && n.type !== 'building').map(n => n.id));
+  originalBuildings = new Set(st.nodes.filter(n => n.type === 'building').map(n => n.id));
+  currentBuilding = 'exterior';
+  buildFromState(st);
+  updateBuildingSelector();
+  renderMapNodes();
+}
+
+// Snapshot publicado -> estado canónico del editor (con las correcciones de datos antiguos)
+function snapshotToState(data) {
   const isUUID = (str) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(str);
   const idMap = {};
   const seenCoords = new Set();
@@ -2080,9 +2429,6 @@ function loadGraph(data) {
     seenCoords.add(key);
     return true;
   });
-
-  originalNodes = new Set(rawNodes.filter(n => isPoiType(n.type) && n.type !== 'building').map(n => n.id));
-  originalBuildings = new Set((data.buildings || []).filter(b => b.id !== 'exterior').map(b => b.id));
 
   const buildings = (data.buildings || []).map(b => {
     if (b.id !== 'exterior' && !isUUID(b.id)) { const newId = crypto.randomUUID(); idMap[b.id] = newId; return { ...b, id: newId }; }
@@ -2107,15 +2453,19 @@ function loadGraph(data) {
   }));
   const stateZones = (data.zonas || []).map(z => ({ id: z.id, building: z.building, name: z.name, tags: z.tags || [], color: z.color, geojson: z.geojson }));
 
-  currentBuilding = 'exterior';
-  buildFromState({ nodes: stateNodes, edges: stateEdges, zones: stateZones });
-  updateBuildingSelector();
-  renderMapNodes();
+  // Conexiones con un extremo inexistente no se dibujan: tampoco forman parte del estado
+  const ids = new Set(stateNodes.map(n => n.id));
+  return canonState({
+    nodes: stateNodes,
+    edges: stateEdges.filter(e => ids.has(e.from) && ids.has(e.to)),
+    zones: stateZones,
+  });
 }
 
 // Si hay avisos, primero se muestra la revisión; "Publicar de todos modos" llama con skipReview
 async function publishToServer({ skipReview = false } = {}) {
   if (publishing) return;
+  if (mergeSession) { setStatus('Primero resuelve los cambios combinados', 'warn'); return; }
   const sedeId = document.getElementById('sede-selector')?.value;
   if (!sedeId) return;
   if (editingZoneId) finishVertexEditing();
@@ -2141,7 +2491,17 @@ async function publishToServer({ skipReview = false } = {}) {
     const promptMsg = `Has realizado los siguientes cambios (excluyendo puntos de ruta/aristas):\n- Nodos (POIs) nuevos: ${nodosNuevos}\n- Nodos (POIs) eliminados: ${nodosEliminados}\n- Edificios nuevos: ${edificiosNuevos}\n- Edificios eliminados: ${edificiosEliminados}\n\n¿Estás seguro de publicar el mapa?`;
     if (!(await window.uiConfirm(promptMsg, "Publicar mapa"))) return;
 
+    await sendPublish(sedeId);
+  } finally {
+    publishing = false;
+  }
+}
+
+// Envía el mapa. Si alguien publicó antes (409), combina los cambios y reintenta (hasta 3 veces)
+async function sendPublish(sedeId, attempt = 1) {
     setStatus('Publicando...', 'warn', { sticky: true });
+    const currentNodes = new Set(nodes.filter(n => isPoiType(n.type) && n.type !== 'building').map(n => n.id));
+    const currentBuildings = new Set(nodes.filter(n => n.type === 'building').map(n => n.id));
     const payload = {
       meta: { campus: sedeId, version: '2.2' },
       buildings: nodes.filter(n => n.type === 'building').map(n => ({ id: n.id, name: n.name, acceso: n.acceso, pisos: n.pisos.map(p => ({ ...p })) })),
@@ -2157,12 +2517,23 @@ async function publishToServer({ skipReview = false } = {}) {
       const headers = { 'Content-Type': 'application/json' };
       if (snapshotVersion !== null) headers['X-Base-Version'] = String(snapshotVersion);
       const res = await fetch(BASE_URL + `/admin/api/sedes/${sedeId}/publish`, { method: 'POST', headers, body: JSON.stringify(payload) });
+      if (res.status === 409 && attempt <= 3) {
+        setStatus('Otra persona publicó: combinando cambios...', 'warn', { sticky: true });
+        const result = await rebaseOnLatest(sedeId);
+        if (result === 'merged') {
+          setStatus('Se combinaron tus cambios con los publicados', 'ok');
+          return sendPublish(sedeId, attempt + 1);
+        }
+        if (result === 'error') {
+          setStatus('El mapa cambió: no se publicó', 'err');
+          await window.uiAlert('Otra persona publicó el mapa y no se pudo descargar la versión actual para combinar tus cambios.\nTus cambios siguen guardados en este navegador; recarga la sede para recuperarlos.', 'No se publicó');
+        }
+        return; // con conflictos, el panel de combinación queda abierto
+      }
       if (res.status === 409 || res.status === 422) {
         const detail = (await res.json().catch(() => ({}))).detail || '';
         setStatus(res.status === 409 ? 'El mapa cambió: no se publicó' : 'Datos inválidos: no se publicó', 'err');
-        await window.uiAlert(res.status === 409
-          ? `${detail}.\nTus cambios siguen guardados en este navegador. Recarga la sede para ver la versión actual; al abrirla podrás recuperar tus cambios desde el borrador (reemplazarán a los publicados).`
-          : `${detail}.`, 'No se publicó');
+        await window.uiAlert(`${detail}.\nTus cambios siguen guardados en este navegador.`, 'No se publicó');
         return;
       }
       if (!res.ok) throw new Error();
@@ -2178,7 +2549,4 @@ async function publishToServer({ skipReview = false } = {}) {
       setStatus('Error al publicar', 'err');
       await window.uiAlert("Hubo un error al publicar el mapa.", "Error");
     }
-  } finally {
-    publishing = false;
-  }
 }

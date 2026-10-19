@@ -449,9 +449,58 @@ async function guardarCambios() {
     + '\n¿Guardar?';
   if (!(await window.uiConfirm(msg, 'Guardar cambios'))) return;
 
-  const body = {
+  saving = true;
+  updateDirty();
+  try {
+    // Si otra persona publicó entremedio (409), se combinan los cambios y se reintenta (hasta 3 veces)
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const res = await fetch(`${ROOT_PATH}/admin/api/sedes/${sedeId}/edificios`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildPatchBody()),
+      });
+      if (res.status === 409) {
+        const conflictos = await rebaseOnLatest();
+        if (conflictos === null) {
+          await window.uiAlert('Otra persona guardó cambios y no se pudo descargar la versión actual. Recarga la página.', 'No se guardó');
+          return;
+        }
+        if (conflictos.length) {
+          await window.uiAlert(
+            `Otra persona modificó estos edificios mientras editabas:\n${conflictos.map(n => `- ${n}`).join('\n')}\n`
+            + 'Se cargó su versión de esos edificios. Tus cambios en los demás se conservaron: revisa y vuelve a guardar.',
+            'Cambios combinados');
+          return;
+        }
+        if (!isDirty()) { // lo que querías guardar ya estaba publicado
+          await window.uiAlert('Tus cambios ya estaban publicados por otra persona.', 'Sin cambios que guardar');
+          return;
+        }
+        continue;
+      }
+      if (res.status === 422) {
+        const detail = (await res.json().catch(() => ({}))).detail;
+        await window.uiAlert(`${typeof detail === 'string' ? detail : 'Datos inválidos'}.`, 'No se guardó');
+        return;
+      }
+      if (!res.ok) throw new Error();
+      break;
+    }
+    saving = false;
+    await cargarEdificios();
+    await window.uiAlert('Cambios guardados.', 'Listo');
+  } catch (e) {
+    await window.uiAlert('Error al guardar los cambios.', 'Error');
+  } finally {
+    saving = false;
+    updateDirty();
+  }
+}
+
+function buildPatchBody() {
+  return {
     base_version: snapshotVersion,
-    edificios: ids.map(id => {
+    edificios: changedIds().map(id => {
       const w = work[id];
       return {
         id,
@@ -462,38 +511,36 @@ async function guardarCambios() {
     }),
     eliminar: [...deleted],
   };
+}
 
-  saving = true;
-  updateDirty();
+// Descarga la última versión y vuelve a aplicar encima los cambios de cada edificio que nadie más tocó.
+// Devuelve los nombres de los edificios en conflicto (modificados también por otra persona), o null si falla.
+async function rebaseOnLatest() {
+  const prevWork = work, prevOriginal = original, prevDeleted = new Set(deleted);
+  const mine = new Set([...changedIds(), ...prevDeleted]);
   try {
-    const res = await fetch(`${ROOT_PATH}/admin/api/sedes/${sedeId}/edificios`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    if (res.status === 409 || res.status === 422) {
-      const detail = (await res.json().catch(() => ({}))).detail;
-      const text = typeof detail === 'string' ? detail : 'Datos inválidos';
-      if (res.status === 409) {
-        await window.uiAlert(`${text}.\nSe recargarán los edificios con la versión actual; vuelve a hacer tus cambios.`, 'No se guardó');
-        saving = false;
-        resetState();
-        await cargarEdificios();
-      } else {
-        await window.uiAlert(`${text}.`, 'No se guardó');
-      }
+    const res = await fetch(`${ROOT_PATH}/admin/api/sedes/${sedeId}/snapshot`);
+    if (!res.ok) return null;
+    snapshotVersion = parseInt(res.headers.get('X-Snapshot-Version'), 10);
+    snapshot = await res.json();
+  } catch (e) {
+    return null;
+  }
+  resetState();
+  const conflictos = [];
+  mine.forEach(id => {
+    const nombre = prevWork[id].nombre || 'Sin nombre';
+    if (!work[id]) {                                  // ya no existe en lo publicado
+      if (!prevDeleted.has(id)) conflictos.push(`${nombre} (lo eliminó otra persona)`);
       return;
     }
-    if (!res.ok) throw new Error();
-    saving = false;
-    await cargarEdificios();
-    await window.uiAlert('Cambios guardados.', 'Listo');
-  } catch (e) {
-    await window.uiAlert('Error al guardar los cambios.', 'Error');
-  } finally {
-    saving = false;
-    updateDirty();
-  }
+    if (original[id] !== prevOriginal[id]) { conflictos.push(nombre); return; }
+    if (prevDeleted.has(id)) deleted.add(id);
+    else work[id] = prevWork[id];                     // nadie más lo tocó: se conserva lo mío
+  });
+  updateDirty();
+  renderLista();
+  return conflictos;
 }
 
 // =============================================================================

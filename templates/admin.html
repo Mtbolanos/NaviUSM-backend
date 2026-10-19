@@ -150,6 +150,23 @@
     </div>
   </div>
 
+  <!-- Combinación de cambios (si otra persona publicó mientras editabas) -->
+  <div id="merge-panel" class="review-panel merge-panel map-overlay" hidden>
+    <div class="review-head">
+      <span class="map-bar-title">Combinar cambios</span>
+    </div>
+    <div id="merge-summary" class="panel-meta"></div>
+    <div id="merge-bulk" class="merge-bulk">
+      <button class="btn btn-sm btn-outline-secondary" onclick="chooseAllConflicts('mine')">Todo lo mío</button>
+      <button class="btn btn-sm btn-outline-secondary" onclick="chooseAllConflicts('theirs')">Todo lo publicado</button>
+    </div>
+    <div id="merge-body" class="review-body"></div>
+    <div class="panel-actions review-actions">
+      <button id="merge-back" class="btn btn-sm btn-link me-auto" onclick="backToConflicts()" hidden>&lt; Cambiar elecciones</button>
+      <button id="merge-publish" class="btn btn-sm btn-accent" onclick="publishMerged()" disabled>Publicar</button>
+    </div>
+  </div>
+
   <!-- Ayuda junto al cursor -->
   <div id="cursor-hint" class="cursor-hint" aria-hidden="true" hidden></div>
 
@@ -171,7 +188,8 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
       <div class="modal-body">
-        <p class="panel-meta mb-3">Los cambios sin publicar se guardan en este navegador: si cierras la página sin publicar, al volver a abrir la sede se ofrece recuperarlos.</p>
+        <p class="panel-meta mb-3">Los cambios sin publicar se guardan en este navegador: si cierras la página sin publicar, al volver a abrir la sede se ofrece recuperarlos.
+          Si otra persona publicó mientras editabas, al publicar tus cambios se combinan con los suyos; solo se pregunta cuando ambos cambiaron lo mismo.</p>
         <div class="help-grid">
           <section>
             <h6>Modos</h6>
@@ -246,5 +264,5 @@
     sedesInfo: {{ sedes_json | tojson | safe }}
   };
 </script>
-<script src="{{ url_for('static', path='js/admin.js') }}?v=0.7.1"></script>
+<script src="{{ url_for('static', path='js/admin.js') }}?v=0.8.0"></script>
 {% endblock %}
