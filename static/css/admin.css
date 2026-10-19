@@ -1353,3 +1353,40 @@ kbd {
     display: none;
   }
 }
+
+/* ===== Barra inferior fija de páginas con guardado (Gestión de Edificios) ===== */
+.page-footer {
+  position: sticky;
+  bottom: -48px;              /* compensa el padding inferior de .page para quedar pegada al borde */
+  margin: 24px -24px -48px;
+  padding: 0 24px;
+  background: var(--naviusm-surface);
+  border-top: 1px solid var(--naviusm-border);
+  box-shadow: 0 -4px 16px var(--naviusm-shadow);
+  z-index: 5;
+}
+
+.page-footer-inner {
+  max-width: 1100px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+}
+
+/* Con barra inferior: el contenido ocupa el alto disponible y la barra queda abajo aunque haya poco contenido */
+.page.has-footer {
+  display: flex;
+  flex-direction: column;
+}
+
+.page.has-footer > .page-inner {
+  flex: 1 0 auto;
+  width: 100%;
+}
+
+.btn-ed:disabled {
+  opacity: 0.45;
+  cursor: default;
+}

@@ -134,8 +134,20 @@ function isDirty() {
 
 function updateDirty() {
   const dirty = isDirty();
+  const n = changedIds().length + deleted.size;
   document.getElementById('dirty-badge').hidden = !dirty;
+  document.getElementById('footer-status').textContent = saving
+    ? 'Guardando...'
+    : (dirty ? `${plural(n, 'edificio modificado', 'edificios modificados')}` : 'Sin cambios');
   document.getElementById('btn-guardar').disabled = !dirty || saving;
+  document.getElementById('btn-descartar').disabled = !dirty || saving;
+}
+
+async function descartarCambios() {
+  if (!isDirty() || saving) return;
+  if (!(await window.uiConfirm('Se descartarán todos los cambios sin guardar.\n¿Continuar?', 'Descartar cambios'))) return;
+  resetState();
+  renderLista();
 }
 
 // Nodos del snapshot por edificio y piso (con el número que tienen hoy, antes de guardar)
@@ -157,7 +169,7 @@ function renderLista() {
   const q = normalizeText(document.getElementById('bld-search').value);
   const ids = Object.keys(work)
     .filter(id => !q || normalizeText(work[id].nombre).includes(q))
-    .sort((a, b) => work[a].nombre.localeCompare(work[b].nombre, 'es'));
+    .sort((a, b) => work[a].nombre.localeCompare(work[b].nombre, 'es', { sensitivity: 'base', numeric: true }));
 
   list.innerHTML = '';
   if (!Object.keys(work).length) {

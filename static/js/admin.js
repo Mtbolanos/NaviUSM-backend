@@ -145,6 +145,11 @@ function floorsOf(buildingId) {
   return b ? b.pisos.map(p => p.numero) : [1];
 }
 
+// Edificios ordenados alfabéticamente (en selectores y listas, no por orden de creación)
+function sortedBuildings() {
+  return nodes.filter(n => n.type === 'building').sort((a, b) => (a.name || '').localeCompare(b.name || '', 'es', { sensitivity: 'base', numeric: true }));
+}
+
 function buildingName(id) {
   if (!id || id === 'exterior') return 'Campus (exterior)';
   const b = nodes.find(n => n.id === id);
@@ -1231,7 +1236,7 @@ function populateBuildingSelect(sel, selected = 'exterior') {
   ext.value = 'exterior';
   ext.textContent = 'Exterior / campus';
   sel.appendChild(ext);
-  nodes.filter(n => n.type === 'building').forEach(b => {
+  sortedBuildings().forEach(b => {
     const opt = document.createElement('option');
     opt.value = b.id;
     opt.textContent = b.name || 'Edificio';
@@ -1506,7 +1511,7 @@ function openEditPopup(type, id, latlng) {
     const n = nodes.find(x => x.id === id);
     const isBld = n.type === 'building';
     const isSrv = isPoiType(n.type);
-    const bOptions = nodes.filter(x => x.type === 'building')
+    const bOptions = sortedBuildings()
       .map(b => `<option value="${escapeHtml(b.id)}" ${b.id === n.building ? 'selected' : ''}>${escapeHtml(b.name)}</option>`).join('');
     // Si el nodo tiene un tipo fuera de la lista (datos antiguos), se agrega para no cambiarlo sin querer
     const types = NODE_TYPES_MENU.includes(n.type) ? NODE_TYPES_MENU : [n.type, ...NODE_TYPES_MENU];
@@ -1673,7 +1678,7 @@ function updateBuildingSelector() {
   ext.value = 'exterior';
   ext.textContent = 'Campus (exterior)';
   sel.appendChild(ext);
-  const blds = nodes.filter(n => n.type === 'building');
+  const blds = sortedBuildings();
   blds.forEach(b => {
     const opt = document.createElement('option');
     opt.value = b.id;
@@ -1738,7 +1743,8 @@ function renderMapNodes() {
       e.line.removeFrom(map);
     }
   });
-  document.getElementById('st-nodes').textContent = nodes.filter(n => n.floor === currentFloor).length;
+  // Solo los nodos del lugar visible: este edificio y piso (o el exterior)
+  document.getElementById('st-nodes').textContent = nodes.filter(n => n.floor === currentFloor && (n.building || 'exterior') === currentBuilding).length;
 }
 
 // =============================================================================

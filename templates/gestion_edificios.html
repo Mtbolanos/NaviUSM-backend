@@ -2,7 +2,7 @@
 {% block title %}<title>Gestión de Edificios - NaviUSM Studio</title>{% endblock %}
 {% block content %}
 
-<div class="page">
+<div class="page has-footer">
  <div class="page-inner">
   <div class="page-header">
     <div class="d-flex align-items-center gap-3">
@@ -12,10 +12,6 @@
         <option value="{{ sede.id }}">{{ sede.nombre }}</option>
         {% endfor %}
       </select>
-    </div>
-    <div class="d-flex align-items-center gap-3">
-      <span id="dirty-badge" class="dirty-badge" hidden>Cambios sin guardar</span>
-      <button id="btn-guardar" class="btn-ed btn-ed-accent" onclick="guardarCambios()" disabled>Guardar cambios</button>
     </div>
   </div>
 
@@ -31,6 +27,17 @@
     <div id="bld-list" class="bld-list">
       <div class="panel-meta py-4 text-center">Cargando datos...</div>
     </div>
+  </div>
+ </div>
+
+ <!-- Barra inferior fija: estado y guardado siempre visibles -->
+ <div class="page-footer">
+  <div class="page-footer-inner">
+    <span id="footer-status" class="panel-meta">Sin cambios</span>
+    <span id="dirty-badge" class="dirty-badge" hidden>Cambios sin guardar</span>
+    <span class="flex-grow-1"></span>
+    <button id="btn-descartar" class="btn btn-sm btn-secondary" onclick="descartarCambios()" disabled>Descartar cambios</button>
+    <button id="btn-guardar" class="btn-ed btn-ed-accent" onclick="guardarCambios()" disabled>Guardar cambios</button>
   </div>
  </div>
 </div>
@@ -60,5 +67,5 @@
     sedesInfo: {{ sedes_json | tojson }}
   };
 </script>
-<script src="{{ url_for('static', path='js/gestion_edificios.js') }}?v=0.7.0"></script>
+<script src="{{ url_for('static', path='js/gestion_edificios.js') }}?v=0.7.1"></script>
 {% endblock %}
