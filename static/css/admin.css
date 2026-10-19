@@ -1302,7 +1302,7 @@ kbd {
 
 .floor-row {
   display: grid;
-  grid-template-columns: 90px minmax(140px, 1fr) 90px 150px 210px;
+  grid-template-columns: 90px minmax(140px, 1fr) 90px 150px 206px;
   align-items: center;
   gap: 10px;
 }
@@ -1325,9 +1325,13 @@ kbd {
 }
 
 .floor-actions {
-  display: flex;
-  justify-content: flex-end;
+  display: grid;
+  grid-template-columns: 120px 80px;
   gap: 6px;
+}
+
+.floor-actions .btn {
+  width: 100%;
 }
 
 .bld-foot {
