@@ -18,7 +18,6 @@ let original = {};          // id -> estado inicial serializado (para saber qué
 let work = {};              // id -> { id, nombre, accesoKey, pisos: [{ key, numero, nombre, desde }] }
 let deleted = new Set();    // edificios marcados para eliminar
 let expanded = new Set();   // edificios desplegados
-let keySeq = 0;
 let saving = false;
 let pisoMap = null, pisoLayer = null;
 
@@ -103,12 +102,7 @@ function resetState() {
   deleted = new Set();
   (snapshot?.buildings || []).filter(b => b.id !== 'exterior').forEach(b => {
     const { pisos, acceso } = pisosDe(b);
-    const w = {
-      id: b.id,
-      nombre: b.name || '',
-      pisos: pisos.map(p => ({ key: ++keySeq, numero: p.numero, nombre: p.nombre, desde: p.numero })),
-    };
-    w.accesoKey = w.pisos.find(p => p.numero === acceso).key;
+    const w = { id: b.id, ...PisosUI.makeModel(b.name || '', pisos, acceso) };
     work[b.id] = w;
     original[b.id] = serialize(w);
   });
@@ -116,13 +110,7 @@ function resetState() {
 }
 
 // Forma comparable de un edificio (independiente de las claves internas)
-function serialize(w) {
-  return JSON.stringify({
-    nombre: w.nombre.trim(),
-    acceso: w.pisos.find(p => p.key === w.accesoKey)?.numero,
-    pisos: [...w.pisos].sort((a, b) => a.numero - b.numero).map(p => [p.numero, (p.nombre || '').trim() || null, p.desde]),
-  });
-}
+const serialize = PisosUI.serialize;
 
 function changedIds() {
   return Object.keys(work).filter(id => !deleted.has(id) && serialize(work[id]) !== original[id]);
@@ -214,6 +202,23 @@ function renderEdificio(w) {
   });
   head.appendChild(toggle);
 
+  if (!isDeleted) {
+    const edit = document.createElement('a');
+    edit.className = 'btn btn-sm btn-outline-secondary';
+    edit.textContent = 'Editar';
+    edit.title = 'Abrir el editor del interior de este edificio';
+    edit.href = `${ROOT_PATH}/admin/edificios/editar?sede=${encodeURIComponent(sedeId)}&edificio=${encodeURIComponent(w.id)}`;
+    edit.addEventListener('click', async (ev) => {
+      if (!isDirty()) return;
+      ev.preventDefault();
+      if (await window.uiConfirm('Tienes cambios sin guardar en esta página. Si abres el editor se perderán.\n¿Continuar?', 'Cambios sin guardar')) {
+        resetState();
+        location.href = edit.href;
+      }
+    });
+    head.appendChild(edit);
+  }
+
   if (isDeleted) {
     const restore = document.createElement('button');
     restore.type = 'button';
@@ -245,114 +250,20 @@ function renderDetalle(w) {
   nameRow.appendChild(nameInput);
   body.appendChild(nameRow);
 
-  // Pisos, de arriba hacia abajo
-  const dupes = numerosRepetidos(w);
-  const sorted = [...w.pisos].sort((a, b) => b.numero - a.numero);
-  const table = document.createElement('div');
-  table.className = 'floor-table';
-  table.innerHTML = `
-    <div class="floor-row floor-header">
-      <span>Número</span><span>Nombre (opcional)</span><span>Acceso</span><span>Puntos</span><span></span>
-    </div>`;
-  sorted.forEach((p, i) => {
-    const isExtreme = i === 0 || i === sorted.length - 1;
-    const counts = p.desde === null ? { poi: 0, ruta: 0, total: 0 } : contarPuntos(nodosEn(w.id, p.desde));
-    const row = document.createElement('div');
-    row.className = 'floor-row';
-
-    const num = document.createElement('input');
-    num.type = 'number';
-    num.step = '1';
-    num.className = 'form-control form-control-sm floor-num' + (dupes.has(p.numero) ? ' is-invalid' : '');
-    num.value = p.numero;
-    num.title = dupes.has(p.numero) ? 'Número repetido' : pisoBase(p.numero);
-    num.setAttribute('aria-label', 'Número de piso');
-    num.addEventListener('change', () => {
-      const v = parseInt(num.value, 10);
-      if (Number.isNaN(v)) { num.value = p.numero; return; }
-      p.numero = v;
-      updateDirty();
-      renderLista();
-    });
-
-    const name = document.createElement('input');
-    name.type = 'text';
-    name.maxLength = 100;
-    name.className = 'form-control form-control-sm';
-    name.placeholder = pisoBase(p.numero);
-    name.value = p.nombre || '';
-    name.setAttribute('aria-label', 'Nombre del piso');
-    name.addEventListener('input', () => { p.nombre = name.value.trim() || null; updateDirty(); });
-
-    const accesoWrap = document.createElement('label');
-    accesoWrap.className = 'floor-acceso';
-    const radio = document.createElement('input');
-    radio.type = 'radio';
-    radio.name = `acceso-${w.id}`;
-    radio.checked = w.accesoKey === p.key;
-    radio.title = 'Piso a nivel de la calle';
-    radio.addEventListener('change', () => { w.accesoKey = p.key; updateDirty(); renderLista(); });
-    accesoWrap.appendChild(radio);
-    if (w.accesoKey === p.key) {
-      const tag = document.createElement('span');
-      tag.textContent = 'Acceso';
-      accesoWrap.appendChild(tag);
-    }
-
-    const pts = document.createElement('span');
-    pts.className = 'panel-meta';
-    pts.textContent = p.desde === null ? 'Nuevo' : `${plural(counts.poi, 'punto', 'puntos')} - ${counts.ruta} de ruta`;
-    pts.title = 'Puntos de interés - puntos de ruta';
-
-    // Dos espacios fijos (Ver en el mapa | Eliminar): los botones quedan siempre en la misma columna,
-    // aunque en esa fila no corresponda alguno de los dos
-    const actions = document.createElement('span');
-    actions.className = 'floor-actions';
-    const verSlot = document.createElement('span');
-    const delSlot = document.createElement('span');
-    if (p.desde !== null) {
-      const ver = document.createElement('button');
-      ver.type = 'button';
-      ver.className = 'btn btn-sm btn-outline-secondary';
-      ver.textContent = 'Ver en el mapa';
-      ver.addEventListener('click', () => verPiso(w, p));
-      verSlot.appendChild(ver);
-    }
-    if (isExtreme && sorted.length > 1) {
-      const del = document.createElement('button');
-      del.type = 'button';
-      del.className = 'btn btn-sm btn-outline-danger';
-      del.textContent = 'Eliminar';
-      del.title = 'Solo se puede eliminar el piso superior o el inferior';
-      del.addEventListener('click', () => eliminarPiso(w, p, counts));
-      delSlot.appendChild(del);
-    }
-    actions.append(verSlot, delSlot);
-
-    row.append(num, name, accesoWrap, pts, actions);
-    table.appendChild(row);
+  // Pisos (componente compartido con el editor de edificio)
+  const floors = document.createElement('div');
+  floors.id = `pisos-${w.id}`;
+  PisosUI.render(floors, w, {
+    counts: (p) => contarPuntos(nodosEn(w.id, p.desde)),
+    onChange: updateDirty,
+    rerender: renderLista,
+    onVer: (p) => verPiso(w, p),
   });
-  body.appendChild(table);
-  if (dupes.size) {
-    const warn = document.createElement('div');
-    warn.className = 'text-danger small mt-1';
-    warn.textContent = 'Hay números de piso repetidos: corrígelos antes de guardar.';
-    body.appendChild(warn);
-  }
+  body.appendChild(floors);
 
-  // Agregar pisos y eliminar edificio
+  // Eliminar edificio
   const foot = document.createElement('div');
   foot.className = 'bld-foot';
-  const addUp = document.createElement('button');
-  addUp.type = 'button';
-  addUp.className = 'btn btn-sm btn-outline-secondary';
-  addUp.textContent = '+ Agregar piso arriba';
-  addUp.addEventListener('click', () => agregarPiso(w, 'arriba'));
-  const addDown = document.createElement('button');
-  addDown.type = 'button';
-  addDown.className = 'btn btn-sm btn-outline-secondary';
-  addDown.textContent = '+ Agregar subterráneo';
-  addDown.addEventListener('click', () => agregarPiso(w, 'abajo'));
   const spacer = document.createElement('span');
   spacer.className = 'flex-grow-1';
   const delB = document.createElement('button');
@@ -360,47 +271,16 @@ function renderDetalle(w) {
   delB.className = 'btn btn-sm btn-outline-danger';
   delB.textContent = 'Eliminar edificio';
   delB.addEventListener('click', () => eliminarEdificio(w));
-  foot.append(addUp, addDown, spacer, delB);
+  foot.append(spacer, delB);
   body.appendChild(foot);
   return body;
 }
 
-function numerosRepetidos(w) {
-  const seen = new Set(), dup = new Set();
-  w.pisos.forEach(p => (seen.has(p.numero) ? dup.add(p.numero) : seen.add(p.numero)));
-  return dup;
-}
+const numerosRepetidos = PisosUI.numerosRepetidos;
 
 // =============================================================================
 // Acciones
 // =============================================================================
-// El piso 0 no se agrega con estos botones: se salta (de -1 se pasa a 1 y viceversa)
-function agregarPiso(w, donde) {
-  const numeros = w.pisos.map(p => p.numero);
-  let numero = donde === 'arriba' ? Math.max(...numeros) + 1 : Math.min(...numeros) - 1;
-  if (numero === 0) numero = donde === 'arriba' ? 1 : -1;
-  if (numeros.includes(numero)) numero = donde === 'arriba' ? Math.max(...numeros, numero) + 1 : Math.min(...numeros, numero) - 1;
-  w.pisos.push({ key: ++keySeq, numero, nombre: null, desde: null });
-  updateDirty();
-  renderLista();
-}
-
-async function eliminarPiso(w, p, counts) {
-  if (w.accesoKey === p.key) {
-    await window.uiAlert('Es el piso de acceso. Marca otro piso como acceso antes de eliminarlo.', 'Eliminar piso');
-    return;
-  }
-  if (counts.total > 0) {
-    const ok = await window.uiConfirm(
-      `${pisoBase(p.numero)} tiene ${plural(counts.poi, 'punto de interés', 'puntos de interés')} y ${plural(counts.ruta, 'punto de ruta', 'puntos de ruta')}.\nAl guardar se eliminarán junto con sus conexiones.\n¿Eliminar el piso?`,
-      'Eliminar piso');
-    if (!ok) return;
-  }
-  w.pisos = w.pisos.filter(x => x.key !== p.key);
-  updateDirty();
-  renderLista();
-}
-
 async function eliminarEdificio(w) {
   const nodos = (snapshot.nodes || []).filter(n => n.building === w.id);
   const { poi } = contarPuntos(nodos);
