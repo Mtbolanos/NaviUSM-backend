@@ -54,11 +54,17 @@ def _publish_version(db: Session, sede: Sede, payload: dict, org_id, base_versio
 
 
 def _publish(db: Session, sede: Sede, payload: dict, org_id, base_version: int | None) -> JSONResponse:
+    """Publica y responde con el contrato comun del POST /publish y del PATCH /edificios.
+
+    Nivel 3, modo informativo: corre despues del commit, sobre el mismo payload que se guardo,
+    y solo reporta; validar_topologia no lanza, asi que no puede tumbar una publicacion hecha.
+    DECISION PENDIENTE (integracion 1.3.1): la respuesta es la de origin/main
+    ({"message", "version"} + X-Snapshot-Version) con `estado` y `validacion` agregados encima;
+    el editor solo lee `version`.
+    """
     version = _publish_version(db, sede, payload, org_id, base_version)
-    return JSONResponse(
-        {"message": PUBLISH_MSG, "version": version},
-        headers={VERSION_HEADER: str(version)},
-    )
+    resultado = PublishResultOut(message=PUBLISH_MSG, version=version, validacion=validar_topologia(payload))
+    return JSONResponse(resultado.model_dump(), headers={VERSION_HEADER: str(version)})
 
 
 @router.post("/admin/api/sedes/{sede_id}/publish", response_model=PublishResultOut)
@@ -88,17 +94,13 @@ def publish_graph(
     # exclude_unset preserva el payload tal como lo mando el editor: validar no
     # puede alterar el artefacto que se publica.
     publicado = payload.model_dump(by_alias=True, exclude_unset=True)
-    version = _publish_version(db, sede, publicado, user.organizacion_id, x_base_version)
-    # Nivel 3, modo informativo: reporta, no bloquea. Corre despues de publicar.
-    # DECISION PENDIENTE (integracion 1.3.1): la respuesta es la de origin/main
-    # ({"message", "version"} + X-Snapshot-Version) con `estado` y `validacion`
-    # agregados encima; el editor solo lee `version`.
-    resultado = PublishResultOut(message=PUBLISH_MSG, version=version, validacion=validar_topologia(publicado))
-    return JSONResponse(resultado.model_dump(), headers={VERSION_HEADER: str(version)})
+    return _publish(db, sede, publicado, user.organizacion_id, x_base_version)
 
 
-# Cambios de Gestión de Edificios: se aplican sobre la última versión publicada y crean una nueva
-@router.patch("/admin/api/sedes/{sede_id}/edificios")
+# Cambios de Gestión de Edificios: se aplican sobre la última versión publicada y crean una nueva.
+# Sin Nivel 2: el payload no viene del cliente, lo arma el servidor desde el snapshot. El Nivel 3
+# informativo si corre (en _publish), con la misma respuesta que el POST /publish.
+@router.patch("/admin/api/sedes/{sede_id}/edificios", response_model=PublishResultOut)
 def patch_edificios(
     sede_id: UUID,
     cambios: EdificiosPatch,
