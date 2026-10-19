@@ -4,9 +4,14 @@
 
 _2026-10_
 
-Escaleras, ascensores y rampas entre pisos de un edificio. Un conector agrupa sus **paradas**: un nodo por piso
-(normalmente de tipo `waypoint`), que puede estar en cualquier posición (una rampa o escalera no tiene por qué ser
-vertical). Las paradas consecutivas (de piso en piso) están unidas por aristas normales.
+Escaleras, ascensores y rampas entre pisos de un edificio. Un conector agrupa sus **puntos** (nodos, normalmente de
+tipo `waypoint`, con `conector_id`), unidos por aristas normales:
+
+- **Ascensor**: un punto por piso donde para; los pisos consecutivos se unen entre sí.
+- **Escalera / rampa**: por **tramos**. Cada tramo empieza en un punto de un piso y termina en otro punto (otra
+  posición) del piso siguiente. En un piso intermedio puede haber dos puntos: la llegada del tramo de abajo y la salida
+  del tramo de arriba, unidos por una arista dentro del mismo piso (descanso). Si la escalera sigue recta, llegada y
+  salida son el mismo nodo. Un piso puede tener más de un punto del mismo conector.
 
 ### Key nueva: `conectores`
 
@@ -25,11 +30,12 @@ vertical). Las paradas consecutivas (de piso en piso) están unidas por aristas 
 
 ### Campo nuevo en `nodes[]`: `conector_id`
 
-Solo en las paradas: `"conector_id": "9b1c..."`. Los demás nodos no traen el campo.
+Solo en los puntos de un conector: `"conector_id": "9b1c..."`. Los demás nodos no traen el campo.
 
 ### Reglas para calcular rutas
 
-- Las aristas entre paradas de una **escalera** traen `es_escalera: true`; las de ascensor y rampa, `false`.
+- Las aristas de los tramos de una **escalera** (entre pisos distintos) traen `es_escalera: true`; los descansos
+  (mismo piso) y las aristas de ascensor y rampa, `false`.
   Una ruta accesible evita las aristas con `es_escalera: true` (como ya se hacía).
 - `weight` = distancia en metros + 15 por piso de diferencia. **El exterior y el piso de acceso de un edificio
   cuentan como el mismo nivel**: la arista de una entrada no suma costo de piso aunque el acceso no sea el piso 1.

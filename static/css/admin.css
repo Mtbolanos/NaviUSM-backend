@@ -1601,3 +1601,73 @@ kbd {
 #floors-editor .floor-row {
   grid-template-columns: 90px minmax(140px, 1fr) 90px 150px 80px;
 }
+
+/* ===== Barra superior: sin cortes de texto y compacta en anchos chicos ===== */
+.topbar .mmode,
+.topbar .btn,
+.topbar .btn-ed,
+.crumbs,
+.crumbs a,
+.crumb-sede {
+  white-space: nowrap;
+}
+
+.topbar {
+  min-width: 0;
+}
+
+.crumbs .sede-select {
+  max-width: 220px;
+}
+
+@media (max-width: 1280px) {
+  .crumb-sede {
+    display: none;
+  }
+}
+
+/* En anchos chicos, las opciones de Crear y los modos quedan solo con su ícono (el nombre sigue en el título) */
+@media (max-width: 1180px) {
+  #create-options .mmode span {
+    display: none;
+  }
+}
+
+@media (max-width: 1020px) {
+  .mode-btns .mmode span {
+    display: none;
+  }
+}
+
+/* ===== Tabla de pisos adaptable: en anchos chicos cada piso ocupa dos líneas ===== */
+.floor-row {
+  grid-template-areas: "num name acceso puntos acciones";
+}
+
+.floor-row > :nth-child(1) { grid-area: num; }
+.floor-row > :nth-child(2) { grid-area: name; }
+.floor-row > :nth-child(3) { grid-area: acceso; }
+.floor-row > :nth-child(4) { grid-area: puntos; }
+.floor-row > :nth-child(5) { grid-area: acciones; }
+
+@media (max-width: 991px) {
+  .floor-row,
+  #floors-editor .floor-row {
+    grid-template-columns: 80px 1fr;
+    grid-template-areas:
+      "num name"
+      "acceso puntos"
+      ". acciones";
+    row-gap: 6px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--naviusm-border);
+  }
+
+  .floor-row.floor-header {
+    display: none;
+  }
+
+  .floor-actions {
+    justify-content: start;
+  }
+}

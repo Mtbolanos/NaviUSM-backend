@@ -15,9 +15,11 @@
         <div id="floors-editor"></div>
       </div>
       <div class="modal-footer">
-        <span class="panel-meta me-auto">Los cambios se aplican al mapa (se pueden deshacer) y se publican con él.</span>
-        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-        <button type="button" class="btn btn-sm btn-accent" onclick="applyFloorsModal()">Aplicar</button>
+        <span class="panel-meta me-auto flex-grow-1">Los cambios se aplican al mapa (se pueden deshacer) y se publican con él.</span>
+        <div class="d-flex gap-2 flex-shrink-0">
+          <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="button" class="btn btn-sm btn-accent" onclick="applyFloorsModal()">Aplicar</button>
+        </div>
       </div>
     </div>
   </div>
@@ -31,6 +33,6 @@
     initialBuilding: {{ edificio_inicial | tojson }}
   };
 </script>
-<script src="{{ url_for('static', path='js/pisos.js') }}?v=0.9.0"></script>
-<script src="{{ url_for('static', path='js/admin.js') }}?v=0.9.0"></script>
+<script src="{{ url_for('static', path='js/pisos.js') }}?v=0.9.1"></script>
+<script src="{{ url_for('static', path='js/admin.js') }}?v=0.9.1"></script>
 {% endblock %}

@@ -59,7 +59,9 @@
   //   onChange() -> el modelo cambió (sin cambiar la estructura de la tabla)
   //   rerender() -> hay que volver a dibujar (cambió la estructura u orden)
   //   onVer(p)   -> opcional: botón "Ver en el mapa" en cada piso existente
+  //   beforeChange() -> opcional: se llama justo antes de cada cambio (para deshacer dentro de la ventana)
   function render(container, model, opts) {
+    const before = () => opts.beforeChange && opts.beforeChange();
     container.innerHTML = '';
     const dupes = numerosRepetidos(model);
     const sorted = [...model.pisos].sort((a, b) => b.numero - a.numero);
@@ -85,7 +87,8 @@
       num.setAttribute('aria-label', 'Número de piso');
       num.addEventListener('change', () => {
         const v = parseInt(num.value, 10);
-        if (Number.isNaN(v)) { num.value = p.numero; return; }
+        if (Number.isNaN(v) || v === p.numero) { num.value = p.numero; return; }
+        before();
         p.numero = v;
         opts.onChange();
         opts.rerender();
@@ -98,7 +101,14 @@
       name.placeholder = pisoBase(p.numero);
       name.value = p.nombre || '';
       name.setAttribute('aria-label', 'Nombre del piso');
-      name.addEventListener('input', () => { p.nombre = name.value.trim() || null; opts.onChange(); });
+      // Un paso de deshacer por cada edición del nombre (desde que se enfoca hasta que se sale)
+      let nameSaved = false;
+      name.addEventListener('focus', () => { nameSaved = false; });
+      name.addEventListener('input', () => {
+        if (!nameSaved) { before(); nameSaved = true; }
+        p.nombre = name.value.trim() || null;
+        opts.onChange();
+      });
 
       const accesoWrap = document.createElement('label');
       accesoWrap.className = 'floor-acceso';
@@ -107,7 +117,7 @@
       radio.name = `acceso-${container.id || 'pisos'}`;
       radio.checked = model.accesoKey === p.key;
       radio.title = 'Piso a nivel de la calle';
-      radio.addEventListener('change', () => { model.accesoKey = p.key; opts.onChange(); opts.rerender(); });
+      radio.addEventListener('change', () => { before(); model.accesoKey = p.key; opts.onChange(); opts.rerender(); });
       accesoWrap.appendChild(radio);
       if (model.accesoKey === p.key) {
         const tag = document.createElement('span');
@@ -139,7 +149,7 @@
         del.className = 'btn btn-sm btn-outline-danger';
         del.textContent = 'Eliminar';
         del.title = 'Solo se puede eliminar el piso superior o el inferior';
-        del.addEventListener('click', () => removeFloor(model, p, counts, opts));
+        del.addEventListener('click', () => removeFloor(model, p, counts, opts, before));
         delSlot.appendChild(del);
       }
       if (opts.onVer) actions.append(verSlot, delSlot); else actions.append(delSlot);
@@ -162,17 +172,17 @@
     up.type = 'button';
     up.className = 'btn btn-sm btn-outline-secondary';
     up.textContent = '+ Agregar piso arriba';
-    up.addEventListener('click', () => { addFloor(model, 'arriba'); opts.onChange(); opts.rerender(); });
+    up.addEventListener('click', () => { before(); addFloor(model, 'arriba'); opts.onChange(); opts.rerender(); });
     const down = document.createElement('button');
     down.type = 'button';
     down.className = 'btn btn-sm btn-outline-secondary';
     down.textContent = '+ Agregar subterráneo';
-    down.addEventListener('click', () => { addFloor(model, 'abajo'); opts.onChange(); opts.rerender(); });
+    down.addEventListener('click', () => { before(); addFloor(model, 'abajo'); opts.onChange(); opts.rerender(); });
     add.append(up, down);
     container.appendChild(add);
   }
 
-  async function removeFloor(model, p, counts, opts) {
+  async function removeFloor(model, p, counts, opts, before) {
     if (model.accesoKey === p.key) {
       await window.uiAlert('Es el piso de acceso. Marca otro piso como acceso antes de eliminarlo.', 'Eliminar piso');
       return;
@@ -183,10 +193,16 @@
         'Eliminar piso');
       if (!ok) return;
     }
+    before();
     model.pisos = model.pisos.filter(x => x.key !== p.key);
     opts.onChange();
     opts.rerender();
   }
 
-  window.PisosUI = { pisoBase, plural, makeModel, numerosRepetidos, accesoNumero, serialize, addFloor, render };
+  // Copia del modelo para deshacer / rehacer dentro de una ventana
+  function cloneModel(model) {
+    return { ...model, pisos: model.pisos.map(p => ({ ...p })) };
+  }
+
+  window.PisosUI = { pisoBase, plural, makeModel, numerosRepetidos, accesoNumero, serialize, addFloor, render, cloneModel };
 })();

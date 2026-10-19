@@ -399,11 +399,13 @@ function restoreBaseStatus() {
 window.addEventListener('load', () => {
   // Renderizador Canvas: permite 'tolerance', que agrega margen de clic alrededor de líneas y polígonos
   // En el editor de edificio, maxBoundsViscosity 1: el borde del área es firme (no se arrastra afuera)
-  map = L.map('map', { zoomControl: false, maxZoom: 22, maxBoundsViscosity: IS_BUILDING ? 1.0 : 0, renderer: L.canvas({ tolerance: 8 }) });
+  // En el editor de edificio el zoom llega a un nivel más que el máximo de los mosaicos: más allá se pixela
+  const maxZoom = IS_BUILDING ? MAP_TILES.max_zoom + 1 : 22;
+  map = L.map('map', { zoomControl: false, maxZoom, maxBoundsViscosity: IS_BUILDING ? 1.0 : 0, renderer: L.canvas({ tolerance: 8 }) });
   L.control.zoom({ position: 'bottomright' }).addTo(map);
   // Más allá de max_zoom no se piden mosaicos: Leaflet amplía los del último nivel disponible
   L.tileLayer(MAP_TILES.url, {
-    maxZoom: 22, maxNativeZoom: MAP_TILES.max_zoom, attribution: MAP_TILES.attribution
+    maxZoom, maxNativeZoom: MAP_TILES.max_zoom, attribution: MAP_TILES.attribution
   }).addTo(map);
 
   map.on('click', onMapClick);
@@ -515,7 +517,17 @@ function applyMarkerDragging() {
 // Teclado
 // =============================================================================
 function onKeyDown(ev) {
-  if (document.querySelector('.modal.show')) return; // diálogo o ayuda abiertos
+  const openModal = document.querySelector('.modal.show');
+  if (openModal) {
+    // En la ventana de pisos, deshacer/rehacer actúa sobre la ventana (salvo mientras se escribe en un campo de texto)
+    const k = (ev.key || '').toLowerCase(), mod = ev.ctrlKey || ev.metaKey;
+    const typing = ev.target.tagName === 'INPUT' && ev.target.type === 'text';
+    if (openModal.id === 'floorsModal' && mod && !ev.altKey && !typing && (k === 'z' || k === 'y')) {
+      ev.preventDefault();
+      floorsModalUndo(k === 'y' || ev.shiftKey);
+    }
+    return; // diálogo o ayuda abiertos
+  }
   const key = ev.key || '';
   const lower = key.toLowerCase();
   const mod = ev.ctrlKey || ev.metaKey;
@@ -1639,12 +1651,18 @@ function openInfoPopup(type, id, latlng) {
     .filter(([, v]) => v !== undefined && v !== null && v !== '')
     .map(([k, v, isHtml]) => `<dt>${escapeHtml(k)}</dt><dd>${isHtml ? v : escapeHtml(v)}</dd>`)
     .join('');
-  const bld = type === 'node' && !IS_BUILDING ? nodes.find(x => x.id === id && x.type === 'building') : null;
+  // En el campus: el nodo de un edificio y su contorno llevan a editar el interior
+  let bldId = null;
+  if (!IS_BUILDING && type === 'node' && nodes.some(x => x.id === id && x.type === 'building')) bldId = id;
+  if (!IS_BUILDING && type === 'zone') {
+    const z = zones.find(x => x.id === id);
+    if (z.building && z.tags.includes('contorno_edificio') && nodes.some(x => x.id === z.building)) bldId = z.building;
+  }
   const html = `
     <div class="pop-info">
       <h6 style="margin-bottom:10px; font-weight:bold; color:var(--naviusm-text-strong);">${escapeHtml(title)}</h6>
       <dl>${body}</dl>
-      ${bld ? `<button type="button" class="btn btn-sm btn-outline-secondary w-100 mt-2" onclick="openBuildingEditor('${id}')">Editar interior</button>` : ''}
+      ${bldId ? `<button type="button" class="btn btn-sm btn-outline-secondary w-100 mt-2" onclick="openBuildingEditor('${bldId}')">Editar interior</button>` : ''}
     </div>`;
   L.popup({ className: 'nv-popup', autoPan: false, maxWidth: 280 }).setLatLng(latlng).setContent(html).openOn(map);
 }
@@ -1713,6 +1731,8 @@ function openEditPopup(type, id, latlng) {
         <label>Nombre</label>
         <input type="text" id="pop-zone-name" class="form-control form-control-sm mb-2" value="${escapeHtml(z.name)}">
         <button type="button" class="btn btn-sm btn-outline-secondary w-100" onclick="enableZoneVertexEditing('${id}')">Modificar contorno</button>
+        ${!IS_BUILDING && z.building && z.tags.includes('contorno_edificio') && nodes.some(x => x.id === z.building)
+          ? `<button type="button" class="btn btn-sm btn-outline-secondary w-100 mt-2" onclick="openBuildingEditor('${z.building}')">Editar interior</button>` : ''}
         ${popupActions('zone', id)}
       </div>`;
   }
@@ -1874,7 +1894,7 @@ function applyBuildingLock() {
   const bounds = z ? z.polygon.getBounds() : b.latlng.toBounds(150);
   map.setMaxBounds(null);
   map.setMinZoom(0);
-  map.fitBounds(bounds, { padding: [60, 60], animate: false, maxZoom: 20 });
+  map.fitBounds(bounds, { padding: [60, 60], animate: false, maxZoom: map.getMaxZoom() });
   map.setMinZoom(Math.max(map.getZoom() - 1, 0));
   map.setMaxBounds(bounds.pad(0.6));
 }
@@ -2097,9 +2117,10 @@ function renderZonesForScope() {
     if (z.id === editingZoneId) return;
     const style = zoneStyle(z, selection?.kind === 'zone' && selection.id === z.id);
     if (!editable) {
-      style.fillOpacity = own ? 0.08 : 0.05;
-      style.opacity = own ? 0.9 : 0.35;
-      style.weight = own ? 2.5 : 1.5;
+      // el contorno del edificio que se edita se ve claro; lo demás, tenue
+      style.fillOpacity = own ? 0.22 : 0.05;
+      style.opacity = own ? 1 : 0.35;
+      style.weight = own ? 3 : 1.5;
     }
     z.polygon.setStyle(style);
   });
@@ -2134,11 +2155,14 @@ function openCampusEditor(nodeId = null) {
 // queda en un solo paso de deshacer.
 // =============================================================================
 let floorsModel = null;
+let floorsUndo = [], floorsRedo = []; // deshacer / rehacer dentro de la ventana (antes de Aplicar)
 
 window.openFloorsModal = function () {
   const b = currentBuildingNode();
   if (!b || mergeSession) return;
   floorsModel = PisosUI.makeModel(b.name, b.pisos, b.acceso);
+  floorsUndo = [];
+  floorsRedo = [];
   document.getElementById('floorsTitle').textContent = `Pisos de ${b.name || 'Edificio'}`;
   renderFloorsModal();
   bootstrap.Modal.getOrCreateInstance(document.getElementById('floorsModal')).show();
@@ -2153,7 +2177,22 @@ function renderFloorsModal() {
   };
   PisosUI.render(document.getElementById('floors-editor'), floorsModel, {
     counts, onChange: () => {}, rerender: renderFloorsModal,
+    beforeChange: () => { floorsUndo.push(PisosUI.cloneModel(floorsModel)); floorsRedo = []; },
   });
+  // al redibujar se pierde el foco (el botón usado ya no existe): se devuelve a la ventana para que sigan
+  // funcionando Esc y los atajos
+  const modal = document.getElementById('floorsModal');
+  if (modal.classList.contains('show') && !modal.contains(document.activeElement)) modal.focus();
+}
+
+// Ctrl/Cmd+Z con la ventana de pisos abierta deshace lo hecho en la ventana
+function floorsModalUndo(redo = false) {
+  const from = redo ? floorsRedo : floorsUndo, to = redo ? floorsUndo : floorsRedo;
+  const prev = from.pop();
+  if (!prev) return;
+  to.push(PisosUI.cloneModel(floorsModel));
+  floorsModel = prev;
+  renderFloorsModal();
 }
 
 window.applyFloorsModal = async function () {
@@ -2187,20 +2226,29 @@ window.applyFloorsModal = async function () {
 };
 
 // =============================================================================
-// Conectores verticales: escalera, ascensor o rampa con una parada (nodo) por piso.
-// Las paradas consecutivas se unen; la escalera lleva es_escalera (la ruta accesible la evita).
+// Conectores verticales.
+//   Ascensor: una parada (nodo) por piso, normalmente en la misma posición; se unen de piso en piso.
+//   Escalera / rampa: tramos. Cada tramo empieza en un punto de un piso y termina en otro punto del
+//   piso siguiente. En un piso intermedio hay una llegada (fin del tramo de abajo) y una salida (inicio
+//   del tramo de arriba), unidas por el descanso; si son el mismo nodo, la escalera sigue recta.
+// Las aristas de los tramos de una escalera llevan es_escalera (la ruta accesible las evita).
 // =============================================================================
+function isFlightType(tipo) {
+  return tipo === 'escalera' || tipo === 'rampa';
+}
+
 function connectorStops(cid) {
   return nodes.filter(n => n.conector_id === cid).sort((a, b) => a.floor - b.floor);
 }
 
-// Une las paradas de piso en piso (sin commit propio: se llama dentro de commit)
+// Ascensor: une las paradas de piso en piso (sin commit propio: se llama dentro de commit)
 function rebuildConnectorEdges(cid) {
   const c = connectors.find(x => x.id === cid);
+  if (!c || isFlightType(c.tipo)) return; // los tramos de escaleras y rampas se definen al crearlos
   const stops = connectorStops(cid);
   const ids = new Set(stops.map(n => n.id));
   edges.filter(e => ids.has(e.from) && ids.has(e.to)).forEach(e => removeEdge(e.id));
-  for (let i = 0; i + 1 < stops.length; i++) addEdgeRaw(stops[i].id, stops[i + 1].id, c?.tipo === 'escalera');
+  for (let i = 0; i + 1 < stops.length; i++) addEdgeRaw(stops[i].id, stops[i + 1].id, false);
 }
 
 // Conectores sin paradas se eliminan; paradas de conectores inexistentes vuelven a ser puntos de ruta
@@ -2211,46 +2259,80 @@ function syncConnectors() {
   });
 }
 
-function connectorFormElement({ title, floorsDefault, onSubmit, onCancel }) {
+// Pisos del edificio en orden (de abajo hacia arriba), entre dos números incluidos
+function floorsBetween(b, desde, hasta) {
+  const lo = Math.min(desde, hasta), hi = Math.max(desde, hasta);
+  return b.pisos.map(p => p.numero).filter(n => n >= lo && n <= hi);
+}
+
+function connectorFormElement({ title, fixedFloor = null, onSubmit, onCancel }) {
   const b = currentBuildingNode();
+  const nums = b.pisos.map(p => p.numero);
+  const startFloor = fixedFloor ?? (nums.includes(currentFloor) ? currentFloor : nums[0]);
+  const above = nums.filter(n => n > startFloor);
+  const opt = (n, sel) => `<option value="${n}" ${n === sel ? 'selected' : ''}>${escapeHtml(floorLabel(n, b.id))}</option>`;
+  const floorChecks = [...b.pisos].reverse().map(p => `
+    <label class="pop-check"><input type="checkbox" name="piso" value="${p.numero}" checked> ${escapeHtml(floorLabel(p.numero, b.id))}</label>`).join('');
   const form = document.createElement('form');
   form.className = 'pop-edit';
-  const floorChecks = [...b.pisos].reverse().map(p => `
-    <label class="pop-check"><input type="checkbox" name="piso" value="${p.numero}" ${floorsDefault.includes(p.numero) ? 'checked' : ''}> ${escapeHtml(floorLabel(p.numero, b.id))}</label>`).join('');
   form.innerHTML = `
     <div class="ctx-title">${escapeHtml(title)}</div>
     <label>Tipo</label>
     <select name="tipo" class="form-select form-select-sm mb-2">
       <option value="escalera">Escalera</option>
-      <option value="ascensor">Ascensor</option>
       <option value="rampa">Rampa</option>
+      <option value="ascensor">Ascensor</option>
     </select>
     <label>Nombre (opcional)</label>
     <input name="nombre" type="text" class="form-control form-control-sm mb-2" maxlength="255" placeholder="Ej: Escalera norte">
-    <label>Pisos que alcanza</label>
-    <div class="connector-floors mb-2">${floorChecks}</div>
-    <label class="pop-check mb-1"><input type="checkbox" name="same"> Misma posición en todos los pisos</label>
-    <div class="panel-meta mb-2">Si no, en cada piso haces clic donde está la parada (o en un punto de ruta existente).</div>
+    <div data-flights>
+      <div class="d-flex gap-2">
+        <div class="flex-fill"><label>Desde</label>
+          <select name="desde" class="form-select form-select-sm mb-2" ${fixedFloor !== null ? 'disabled' : ''}>${nums.map(n => opt(n, startFloor)).join('')}</select></div>
+        <div class="flex-fill"><label>Hasta</label>
+          <select name="hasta" class="form-select form-select-sm mb-2">${nums.map(n => opt(n, above[0] ?? startFloor)).join('')}</select></div>
+      </div>
+      <label class="pop-check mb-1"><input type="checkbox" name="pattern" checked> Todos los tramos en la misma ubicación</label>
+      <div class="panel-meta mb-2">Marcas dónde empieza el primer tramo y dónde termina en el piso siguiente; los demás tramos se repiten en esos puntos. Sin marcar, eliges cada tramo.</div>
+    </div>
+    <div data-elevator hidden>
+      <label>Pisos donde para</label>
+      <div class="connector-floors mb-2">${floorChecks}</div>
+      <label class="pop-check mb-1"><input type="checkbox" name="same" checked> Misma posición en todos los pisos</label>
+      <div class="panel-meta mb-2">Si no, en cada piso haces clic donde está la parada (o en un punto de ruta existente).</div>
+    </div>
     <div class="pop-actions">
       <span class="spacer"></span>
       <button type="button" class="btn btn-sm btn-secondary" data-cancel>Cancelar</button>
       <button type="submit" class="btn btn-sm btn-accent" data-primary>Continuar</button>
     </div>`;
-  const tipo = form.querySelector('[name="tipo"]'), same = form.querySelector('[name="same"]');
-  let sameTouched = false;
-  same.addEventListener('change', () => { sameTouched = true; });
-  tipo.addEventListener('change', () => { if (!sameTouched) same.checked = tipo.value === 'ascensor'; });
+  const tipo = form.querySelector('[name="tipo"]');
+  const syncKind = () => {
+    form.querySelector('[data-flights]').hidden = !isFlightType(tipo.value);
+    form.querySelector('[data-elevator]').hidden = isFlightType(tipo.value);
+    fitPopup(activePopup);
+  };
+  tipo.addEventListener('change', syncKind);
   form.addEventListener('submit', (ev) => {
     ev.preventDefault();
-    const floors = [...form.querySelectorAll('[name="piso"]:checked')].map(i => parseInt(i.value, 10)).sort((x, y) => x - y);
-    if (floors.length < 2) { showMapHint(map.getCenter(), 'Elige al menos dos pisos'); return; }
-    onSubmit({ tipo: tipo.value, nombre: form.querySelector('[name="nombre"]').value.trim(), floors, samePos: same.checked });
+    const nombre = form.querySelector('[name="nombre"]').value.trim();
+    if (isFlightType(tipo.value)) {
+      const desde = parseInt(form.querySelector('[name="desde"]').value, 10);
+      const hasta = parseInt(form.querySelector('[name="hasta"]').value, 10);
+      const floors = floorsBetween(b, desde, hasta);
+      if (floors.length < 2) { showMapHint(map.getCenter(), 'Elige dos pisos distintos'); return; }
+      onSubmit({ tipo: tipo.value, nombre, floors, pattern: form.querySelector('[name="pattern"]').checked });
+    } else {
+      const floors = [...form.querySelectorAll('[name="piso"]:checked')].map(i => parseInt(i.value, 10)).sort((x, y) => x - y);
+      if (floors.length < 2) { showMapHint(map.getCenter(), 'Elige al menos dos pisos'); return; }
+      onSubmit({ tipo: tipo.value, nombre, floors, samePos: form.querySelector('[name="same"]').checked });
+    }
   });
   form.querySelector('[data-cancel]').addEventListener('click', onCancel);
   return form;
 }
 
-// Desde el menú de Crear: el punto del clic es la parada del piso actual
+// Desde el menú de Crear: el punto del clic es el inicio (escalera/rampa) o la parada del piso actual (ascensor)
 function showConnectorForm() {
   const b = currentBuildingNode();
   if (!b) return;
@@ -2259,7 +2341,6 @@ function showConnectorForm() {
   const latlng = ctx.latlng;
   const form = connectorFormElement({
     title: 'Nuevo conector entre pisos',
-    floorsDefault: b.pisos.map(p => p.numero),
     onSubmit: (cfg) => { map.closePopup(); startConnectorPlacement({ ...cfg, latlng }); },
     onCancel: () => map.closePopup(),
   });
@@ -2267,7 +2348,7 @@ function showConnectorForm() {
   fitPopup(ctx.popup);
 }
 
-// Desde un punto de ruta: ese nodo es la parada de su piso
+// Desde un punto de ruta: ese nodo es el inicio del primer tramo (o la parada de su piso, en un ascensor)
 window.startConnectorFromNode = function (id) {
   const n = nodes.find(x => x.id === id);
   const b = currentBuildingNode();
@@ -2275,7 +2356,7 @@ window.startConnectorFromNode = function (id) {
   if (b.pisos.length < 2) { showMapHint(n.latlng, 'El edificio tiene un solo piso'); return; }
   const form = connectorFormElement({
     title: 'Conectar a otro piso',
-    floorsDefault: b.pisos.map(p => p.numero),
+    fixedFloor: n.floor,
     onSubmit: (cfg) => {
       map.closePopup();
       if (!cfg.floors.includes(n.floor)) cfg.floors = [...cfg.floors, n.floor].sort((x, y) => x - y);
@@ -2283,31 +2364,111 @@ window.startConnectorFromNode = function (id) {
     },
     onCancel: () => map.closePopup(),
   });
-  L.popup({ className: 'nv-popup nv-edit', autoPan: false, minWidth: 240, maxWidth: 300 }).setLatLng(n.latlng).setContent(form).openOn(map);
+  L.popup({ className: 'nv-popup nv-edit', autoPan: false, minWidth: 260, maxWidth: 320 }).setLatLng(n.latlng).setContent(form).openOn(map);
 };
 
 function startConnectorPlacement(cfg) {
   if (mode !== 'create' && mode !== 'modify') setMode('create');
   cancelEdge();
   endRoute();
-  placement = { ...cfg, stops: new Map(), ghosts: [], returnFloor: currentFloor, floor: null };
+  placement = { ...cfg, ghosts: [], returnFloor: currentFloor, floor: null };
+  document.getElementById('map').classList.add('is-drawing');
+  if (isFlightType(cfg.tipo)) {
+    placement.flights = [];        // [{ start: punto, end: punto }]; punto = { latlng, existing?, linkTo? }
+    placement.k = 0;               // tramo en curso
+    placement.part = 'start';
+    const firstNode = cfg.first ? nodes.find(x => x.id === cfg.first) : null;
+    if (firstNode && firstNode.floor === cfg.floors[0]) {
+      placement.flights[0] = { start: { existing: firstNode.id, latlng: firstNode.latlng } };
+      placement.part = 'end';
+    } else if (cfg.latlng && currentFloor === cfg.floors[0] && !cfg.connectorId) {
+      placement.flights[0] = { start: { latlng: cfg.latlng } };
+      placement.part = 'end';
+    }
+    nextFlightStep();
+    return;
+  }
+  // Ascensor: una parada por piso
+  placement.stops = new Map();
   if (cfg.first) {
     const n = nodes.find(x => x.id === cfg.first);
     placement.stops.set(n.floor, { existing: n.id, latlng: n.latlng });
   } else if (cfg.latlng && cfg.floors.includes(currentFloor) && !cfg.connectorId) {
     placement.stops.set(currentFloor, { latlng: cfg.latlng });
   }
-  if (cfg.samePos) {
-    const ll = cfg.latlng;
-    cfg.floors.forEach(f => { if (!placement.stops.has(f)) placement.stops.set(f, { latlng: ll }); });
+  if (cfg.samePos && cfg.latlng) {
+    cfg.floors.forEach(f => { if (!placement.stops.has(f)) placement.stops.set(f, { latlng: cfg.latlng }); });
     finishConnectorPlacement();
     return;
   }
-  document.getElementById('map').classList.add('is-drawing');
-  nextPlacementFloor();
+  nextElevatorFloor();
 }
 
-function nextPlacementFloor() {
+function showPlacementBar(title, hint, canSkip) {
+  document.getElementById('connector-title').textContent = title;
+  document.getElementById('connector-hint').textContent = hint;
+  const skip = document.getElementById('connector-skip');
+  skip.hidden = !canSkip;
+  document.getElementById('connector-bar').hidden = false;
+}
+
+function connectorTitle(pl) {
+  return `${CONNECTOR_TYPES[pl.tipo]}${pl.nombre ? ` ${pl.nombre}` : ''}`;
+}
+
+// Escalera / rampa: inicio del tramo k en floors[k] y fin en floors[k + 1]
+function nextFlightStep() {
+  const pl = placement;
+  const total = pl.floors.length - 1;
+  if (pl.part === 'start' && pl.k >= total) { finishConnectorPlacement(); return; }
+  // Con "misma ubicación", al tener el primer tramo completo se generan los demás
+  if (pl.pattern && pl.k === 1 && pl.part === 'start') {
+    const P = pl.flights[0].start.latlng, Q = pl.flights[0].end.latlng;
+    for (let k = 1; k < total; k++) pl.flights[k] = { start: { latlng: P }, end: { latlng: Q } };
+    finishConnectorPlacement();
+    return;
+  }
+  pl.floor = pl.part === 'start' ? pl.floors[pl.k] : pl.floors[pl.k + 1];
+  setFloor(pl.floor, { keepPlacement: true });
+  drawFlightGhosts();
+  const where = pl.part === 'start' ? 'empieza' : 'termina';
+  showPlacementBar(
+    `${connectorTitle(pl)} - Tramo ${pl.k + 1} de ${total}: clic donde ${where} (${floorLabel(pl.floor, currentBuilding)})`,
+    pl.part === 'start' && pl.k > 0
+      ? 'Clic en la llegada del tramo anterior si la escalera sigue recta, o donde empieza el tramo - Esc cancela todo'
+      : 'Clic en el mapa o en un punto de ruta existente - Esc cancela todo',
+    false);
+}
+
+function drawFlightGhosts() {
+  const pl = placement;
+  clearGhosts();
+  const marks = [];
+  pl.flights.forEach((f, k) => {
+    if (f.start && pl.floors[k] !== currentFloor) marks.push([f.start.latlng, `Inicio tramo ${k + 1} (${floorLabel(pl.floors[k], currentBuilding)})`]);
+    if (f.end && pl.floors[k + 1] !== currentFloor) marks.push([f.end.latlng, `Fin tramo ${k + 1} (${floorLabel(pl.floors[k + 1], currentBuilding)})`]);
+  });
+  // la llegada del tramo anterior a este piso aún no existe como nodo: se muestra como guía en este piso
+  const prev = pl.flights[pl.k - 1];
+  if (pl.part === 'start' && prev?.end) marks.push([prev.end.latlng, 'Llegada del tramo anterior', true]);
+  marks.forEach(([ll, label, here]) => addGhost(ll, label, here));
+}
+
+function clearGhosts() {
+  placement.ghosts.forEach(g => g.remove());
+  placement.ghosts = [];
+}
+
+function addGhost(latlng, label, here = false) {
+  const g = L.circleMarker(latlng, {
+    radius: here ? 10 : 8, weight: 2, dashArray: here ? null : '3,3',
+    color: themeVar('--naviusm-accent'), fillOpacity: here ? 0.35 : 0.12, interactive: false,
+  }).bindTooltip(escapeHtml(label), { permanent: true, direction: 'right', className: 'ghost-label' }).addTo(map);
+  placement.ghosts.push(g);
+}
+
+// Ascensor: siguiente piso sin parada
+function nextElevatorFloor() {
   const pl = placement;
   const rest = pl.floors.filter(f => !pl.stops.has(f));
   if (!rest.length) { finishConnectorPlacement(); return; }
@@ -2316,58 +2477,64 @@ function nextPlacementFloor() {
   rest.sort((a, b) => Math.abs(a - ref) - Math.abs(b - ref) || a - b);
   pl.floor = rest[0];
   setFloor(pl.floor, { keepPlacement: true });
-  drawPlacementGhosts();
-  const total = pl.floors.length + (pl.connectorId ? connectorStops(pl.connectorId).length : 0);
-  const done = pl.stops.size + (pl.connectorId ? connectorStops(pl.connectorId).length : 0);
-  document.getElementById('connector-title').textContent =
-    `${CONNECTOR_TYPES[pl.tipo]}${pl.nombre ? ` ${pl.nombre}` : ''}: ${floorLabel(pl.floor, currentBuilding)} (${done + 1} de ${total})`;
-  document.getElementById('connector-hint').textContent =
-    'Clic donde está la parada en este piso - Clic en un punto de ruta para usarlo - Esc cancela todo';
-  document.getElementById('connector-skip').disabled = !pl.connectorId && pl.stops.size + rest.length - 1 < 2;
-  document.getElementById('connector-bar').hidden = false;
+  clearGhosts();
+  const shown = [...pl.stops.entries()];
+  if (pl.connectorId) connectorStops(pl.connectorId).forEach(n => shown.push([n.floor, { latlng: n.latlng }]));
+  shown.forEach(([floor, st]) => { if (floor !== currentFloor) addGhost(st.latlng, floorLabel(floor, currentBuilding)); });
+  const existing = pl.connectorId ? connectorStops(pl.connectorId).length : 0;
+  showPlacementBar(
+    `${connectorTitle(pl)}: ${floorLabel(pl.floor, currentBuilding)} (${pl.stops.size + existing + 1} de ${pl.floors.length + existing})`,
+    'Clic donde está la parada en este piso - Clic en un punto de ruta para usarlo - Esc cancela todo',
+    pl.connectorId || pl.stops.size + rest.length - 1 >= 2);
 }
 
-// Paradas ya colocadas (de otros pisos) como guía, sin interacción
-function drawPlacementGhosts() {
-  placement.ghosts.forEach(g => g.remove());
-  placement.ghosts = [];
-  const show = [...placement.stops.entries()];
-  if (placement.connectorId) connectorStops(placement.connectorId).forEach(n => show.push([n.floor, { latlng: n.latlng }]));
-  show.forEach(([floor, st]) => {
-    if (floor === currentFloor) return;
-    const g = L.circleMarker(st.latlng, { radius: 9, weight: 2, dashArray: '3,3', color: themeVar('--naviusm-accent'), fillOpacity: 0.15, interactive: false })
-      .bindTooltip(escapeHtml(floorLabel(floor, currentBuilding)), { permanent: true, direction: 'right', className: 'ghost-label' })
-      .addTo(map);
-    placement.ghosts.push(g);
-  });
+// Punto elegido para una parada: un punto de ruta libre se usa tal cual; una sala u otra parada,
+// se crea una parada al lado conectada a ella
+function stopPoint(latlng, node) {
+  if (!node) return { latlng };
+  if (node.type === 'waypoint' && (!node.conector_id || node.conector_id === placement.connectorId)) {
+    return { existing: node.id, latlng: node.latlng };
+  }
+  const ll = map.containerPointToLatLng(map.latLngToContainerPoint(node.latlng).add([20, 0]));
+  showMapHint(ll, 'Parada creada junto al nodo y conectada a él');
+  return { latlng: ll, linkTo: node.id };
 }
 
 function placeConnectorStop(latlng, node = null) {
   const pl = placement;
   if (!insideScope(latlng)) { showMapHint(latlng, 'Fuera del edificio'); return; }
-  if (node) {
-    if (node.type === 'waypoint' && !node.conector_id) {
-      pl.stops.set(pl.floor, { existing: node.id, latlng: node.latlng });
+  if (isFlightType(pl.tipo)) {
+    // clic en la llegada pendiente del tramo anterior (aún sin nodo): la escalera sigue recta desde ahí
+    const prev = pl.flights[pl.k - 1];
+    let point;
+    if (!node && pl.part === 'start' && prev?.end && map.latLngToContainerPoint(prev.end.latlng).distanceTo(map.latLngToContainerPoint(latlng)) < 14) {
+      point = { sameAs: pl.k - 1, latlng: prev.end.latlng };
     } else {
-      // Sala, baño, etc. o parada de otro conector: parada nueva al lado, conectada a ese nodo
-      const ll = map.containerPointToLatLng(map.latLngToContainerPoint(node.latlng).add([20, 0]));
-      pl.stops.set(pl.floor, { latlng: ll, linkTo: node.id });
-      showMapHint(ll, 'Parada creada junto al nodo y conectada a él');
+      point = stopPoint(latlng, node);
     }
-  } else {
-    pl.stops.set(pl.floor, { latlng });
+    if (pl.part === 'start') {
+      pl.flights[pl.k] = { start: point };
+      pl.part = 'end';
+    } else {
+      pl.flights[pl.k].end = point;
+      pl.k += 1;
+      pl.part = 'start';
+    }
+    nextFlightStep();
+    return;
   }
-  nextPlacementFloor();
+  pl.stops.set(pl.floor, stopPoint(latlng, node));
+  nextElevatorFloor();
 }
 
 window.skipConnectorFloor = function () {
-  if (!placement) return;
+  if (!placement || isFlightType(placement.tipo)) return;
   placement.floors = placement.floors.filter(f => f !== placement.floor);
-  nextPlacementFloor();
+  nextElevatorFloor();
 };
 
 function endPlacementUi() {
-  placement.ghosts.forEach(g => g.remove());
+  clearGhosts();
   document.getElementById('connector-bar').hidden = true;
   document.getElementById('map').classList.remove('is-drawing');
 }
@@ -2381,53 +2548,94 @@ window.cancelConnectorPlacement = function () {
   setStatus('Conector cancelado', 'ok');
 };
 
+// Crea (o reutiliza) el nodo de un punto (sin commit propio)
+function materializeStop(point, floor, cid) {
+  let n;
+  if (point.existing) {
+    n = nodes.find(x => x.id === point.existing);
+    n.conector_id = cid;
+    applyNodeVisual(n);
+  } else {
+    n = addNodeRaw('waypoint', point.latlng, {}, { floor, building: currentBuilding, conector_id: cid });
+  }
+  if (point.linkTo) addEdgeRaw(n.id, point.linkTo, false);
+  return n;
+}
+
 function finishConnectorPlacement() {
   const pl = placement;
-  if (pl.ghosts.length || !document.getElementById('connector-bar').hidden) endPlacementUi();
+  endPlacementUi();
   placement = null;
-  if (!pl.connectorId && pl.stops.size < 2) { setFloor(pl.returnFloor); showMapHint(map.getCenter(), 'Un conector necesita al menos dos paradas'); return; }
+  const flights = isFlightType(pl.tipo) ? pl.flights.filter(f => f?.start && f?.end) : null;
+  if (flights ? !flights.length : (!pl.connectorId && pl.stops.size < 2)) {
+    setFloor(pl.returnFloor);
+    showMapHint(map.getCenter(), 'El conector quedó incompleto: no se creó');
+    return;
+  }
   commit(() => {
     let cid = pl.connectorId;
     if (!cid) {
       cid = crypto.randomUUID();
       connectors.push(canonConnector({ id: cid, tipo: pl.tipo, nombre: pl.nombre, building: currentBuilding }));
     }
-    pl.stops.forEach((st, floor) => {
-      let n;
-      if (st.existing) {
-        n = nodes.find(x => x.id === st.existing);
-        n.conector_id = cid;
-        applyNodeVisual(n);
-      } else {
-        n = addNodeRaw('waypoint', st.latlng, {}, { floor, building: currentBuilding, conector_id: cid });
+    if (flights) {
+      const ends = [];
+      flights.forEach((f, k) => {
+        const start = f.start.sameAs !== undefined ? ends[f.start.sameAs] : materializeStop(f.start, pl.floors[k], cid);
+        const end = materializeStop(f.end, pl.floors[k + 1], cid);
+        addEdgeRaw(start.id, end.id, pl.tipo === 'escalera');
+        // descanso: la llegada del tramo anterior y la salida de este, en el mismo piso
+        const arrival = ends[k - 1];
+        if (arrival && arrival.id !== start.id) addEdgeRaw(arrival.id, start.id, false);
+        ends[k] = end;
+      });
+      // al agregar un tramo a un conector existente, el nodo nuevo del piso compartido se une a su parada más cercana
+      if (pl.connectorId) {
+        const created = new Set(connectorStops(cid).map(n => n.id));
+        connectorStops(cid).forEach(n => {
+          const sameFloor = connectorStops(cid).filter(o => o.id !== n.id && o.floor === n.floor);
+          if (sameFloor.length && !edges.some(e => (e.from === n.id && sameFloor.some(o => o.id === e.to)) || (e.to === n.id && sameFloor.some(o => o.id === e.from)))) {
+            const nearest = sameFloor.sort((a, b) => a.latlng.distanceTo(n.latlng) - b.latlng.distanceTo(n.latlng))[0];
+            if (created.has(nearest.id)) addEdgeRaw(n.id, nearest.id, false);
+          }
+        });
       }
-      if (st.linkTo) addEdgeRaw(n.id, st.linkTo, false);
-    });
-    rebuildConnectorEdges(cid);
+    } else {
+      pl.stops.forEach((st, floor) => materializeStop(st, floor, cid));
+      rebuildConnectorEdges(cid);
+    }
   });
   lastCreated = { kind: 'connector' };
   setFloor(pl.returnFloor);
-  setStatus(pl.connectorId ? 'Paradas agregadas al conector' : 'Conector creado', 'ok');
+  setStatus(pl.connectorId ? 'Conector ampliado' : 'Conector creado', 'ok');
 }
 
 function openConnectorPopup(n, latlng) {
   const c = connectorOf(n);
   const b = currentBuildingNode();
   const stops = connectorStops(c.id);
-  const missing = b ? b.pisos.filter(p => !stops.some(st => st.floor === p.numero)) : [];
+  const floorsWith = [...new Set(stops.map(st => st.floor))];
+  const nums = b ? b.pisos.map(p => p.numero) : [];
+  const missing = nums.filter(f => !floorsWith.includes(f));
+  const top = Math.max(...floorsWith), bottom = Math.min(...floorsWith);
+  const upFloor = nums.find(f => f > top), downFloor = [...nums].reverse().find(f => f < bottom);
+  const flight = isFlightType(c.tipo);
+  const tipos = flight ? ['escalera', 'rampa'] : ['ascensor'];
   const html = `
     <div class="pop-edit">
-      <div class="ctx-title">Conector entre pisos</div>
-      <label>Tipo</label>
+      <div class="ctx-title">${flight ? 'Escalera / rampa' : 'Ascensor'}</div>
+      ${flight ? `<label>Tipo</label>
       <select id="pop-con-tipo" class="form-select form-select-sm mb-2">
-        ${Object.entries(CONNECTOR_TYPES).map(([k, v]) => `<option value="${k}" ${k === c.tipo ? 'selected' : ''}>${v}</option>`).join('')}
-      </select>
+        ${tipos.map(k => `<option value="${k}" ${k === c.tipo ? 'selected' : ''}>${CONNECTOR_TYPES[k]}</option>`).join('')}
+      </select>` : `<input type="hidden" id="pop-con-tipo" value="ascensor">`}
       <label>Nombre (opcional)</label>
       <input id="pop-con-nombre" type="text" class="form-control form-control-sm mb-2" maxlength="255" value="${escapeHtml(c.nombre || '')}">
-      <div class="panel-meta mb-2">Paradas: ${escapeHtml(stops.map(st => floorLabel(st.floor, st.building)).join(', '))}</div>
-      ${missing.length ? `<button type="button" class="btn btn-sm btn-outline-secondary w-100 mb-2" onclick="addConnectorStops('${c.id}')">Agregar parada en otro piso</button>` : ''}
+      <div class="panel-meta mb-2">${flight ? 'Pisos' : 'Paradas'}: ${escapeHtml(floorsWith.map(f => floorLabel(f, c.building)).join(', '))}</div>
+      ${flight && upFloor !== undefined ? `<button type="button" class="btn btn-sm btn-outline-secondary w-100 mb-2" onclick="addFlight('${c.id}', 'up')">Agregar tramo hacia ${escapeHtml(floorLabel(upFloor, c.building))}</button>` : ''}
+      ${flight && downFloor !== undefined ? `<button type="button" class="btn btn-sm btn-outline-secondary w-100 mb-2" onclick="addFlight('${c.id}', 'down')">Agregar tramo desde ${escapeHtml(floorLabel(downFloor, c.building))}</button>` : ''}
+      ${!flight && missing.length ? `<button type="button" class="btn btn-sm btn-outline-secondary w-100 mb-2" onclick="addConnectorStops('${c.id}')">Agregar parada en otro piso</button>` : ''}
       <div class="pop-actions pop-actions-wrap">
-        <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeConnectorStop('${n.id}')" title="Quitar la parada de este piso (Supr)">Quitar parada</button>
+        <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeConnectorStop('${n.id}')" title="Quitar este punto (Supr)">Quitar ${flight ? 'punto' : 'parada'}</button>
         <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteConnector('${c.id}')">Eliminar conector</button>
         <span class="spacer"></span>
         <button type="button" class="btn btn-sm btn-secondary" onclick="map.closePopup()">Cancelar</button>
@@ -2444,11 +2652,29 @@ window.saveConnectorEdit = function (cid) {
     const c = connectors.find(x => x.id === cid);
     c.tipo = tipo;
     c.nombre = nombre;
-    const ids = new Set(connectorStops(cid).map(n => n.id));
-    edges.forEach(e => { if (ids.has(e.from) && ids.has(e.to)) { e.es_escalera = tipo === 'escalera'; e.line.setStyle({ color: edgeColor(e) }); } });
-    connectorStops(cid).forEach(applyNodeVisual);
+    // los tramos (entre pisos distintos) de una escalera llevan es_escalera; los descansos no
+    const stops = connectorStops(cid);
+    const byId = new Map(stops.map(n => [n.id, n]));
+    edges.forEach(e => {
+      const a = byId.get(e.from), b = byId.get(e.to);
+      if (a && b) { e.es_escalera = tipo === 'escalera' && a.floor !== b.floor; e.line.setStyle({ color: edgeColor(e) }); }
+    });
+    stops.forEach(applyNodeVisual);
   });
   map.closePopup();
+};
+
+// Escalera / rampa: un tramo más hacia arriba o hacia abajo del conector
+window.addFlight = function (cid, dir) {
+  const c = connectors.find(x => x.id === cid);
+  const b = currentBuildingNode();
+  const floorsWith = connectorStops(cid).map(n => n.floor);
+  const nums = b.pisos.map(p => p.numero);
+  const top = Math.max(...floorsWith), bottom = Math.min(...floorsWith);
+  const floors = dir === 'up' ? [top, nums.find(f => f > top)] : [[...nums].reverse().find(f => f < bottom), bottom];
+  map.closePopup();
+  startConnectorPlacement({ connectorId: cid, tipo: c.tipo, nombre: c.nombre, floors, pattern: false });
+  setStatus('Marca el inicio y el fin del tramo nuevo (puedes hacer clic en un punto del conector para usarlo)', 'ok');
 };
 
 window.addConnectorStops = function (cid) {
@@ -2461,7 +2687,7 @@ window.addConnectorStops = function (cid) {
   setStatus('Coloca las paradas que falten; "Omitir este piso" salta los que no correspondan', 'ok');
 };
 
-// Quitar una parada: el nodo se elimina y las paradas de arriba y abajo quedan unidas entre sí
+// Quitar una parada: el nodo se elimina; en un ascensor, las paradas de arriba y abajo quedan unidas
 window.removeConnectorStop = function (nodeId) {
   const n = nodes.find(x => x.id === nodeId);
   if (!n) return;
@@ -2473,12 +2699,12 @@ window.removeConnectorStop = function (nodeId) {
   });
 };
 
-// Eliminar el conector: se quitan las uniones entre paradas; las paradas sin otras conexiones se eliminan
-// y las que sí tienen (usadas como punto de ruta) quedan como puntos de ruta normales
+// Eliminar el conector: se quitan sus tramos y uniones; los puntos sin otras conexiones se eliminan
+// y los que sí tienen (usados como punto de ruta) quedan como puntos de ruta normales
 window.deleteConnector = async function (cid) {
   const c = connectors.find(x => x.id === cid);
   map.closePopup();
-  if (!(await window.uiConfirm(`¿Eliminar ${c.nombre || CONNECTOR_TYPES[c.tipo].toLowerCase()} y sus paradas?`, 'Eliminar conector'))) return;
+  if (!(await window.uiConfirm(`¿Eliminar ${c.nombre || CONNECTOR_TYPES[c.tipo].toLowerCase()} y sus puntos?`, 'Eliminar conector'))) return;
   commit(() => {
     const stops = connectorStops(cid);
     const ids = new Set(stops.map(n => n.id));
@@ -2648,10 +2874,16 @@ function collectIssues() {
 
   // Conectores: con una sola parada, o paradas unidas solo a otras paradas (no llegan a la red de su piso)
   const lonely = connectors.filter(c => connectorStops(c.id).length < 2);
-  const unlinkedStops = nodes.filter(n => {
-    if (!n.conector_id) return false;
-    const mates = new Set(connectorStops(n.conector_id).map(x => x.id));
-    return !edges.some(e => (e.from === n.id && !mates.has(e.to)) || (e.to === n.id && !mates.has(e.from)));
+  // por piso: ningún punto del conector en ese piso está unido a la red del piso
+  const unlinkedStops = [];
+  connectors.forEach(c => {
+    const stops = connectorStops(c.id);
+    const mates = new Set(stops.map(x => x.id));
+    [...new Set(stops.map(n => n.floor))].forEach(floor => {
+      const here = stops.filter(n => n.floor === floor);
+      const linked = here.some(n => edges.some(e => (e.from === n.id && !mates.has(e.to)) || (e.to === n.id && !mates.has(e.from))));
+      if (!linked) unlinkedStops.push({ c, floor, ids: here.map(n => n.id), n: here[0] });
+    });
   });
 
   // Nodos de un edificio que están dentro del contorno de otro (por ejemplo, creados con otro edificio elegido)
@@ -2746,11 +2978,8 @@ function renderReview() {
     issues.unnamed.map(n => ({ label: `${NODE_TYPE_LABELS[n.type] || n.type} - ${placeLabel(n)}`, ids: [n.id] })));
   section('Conectores con una sola parada', 'No unen pisos: agrega otra parada o elimínalos.',
     issues.lonely.map(c => ({ label: `${c.nombre || CONNECTOR_TYPES[c.tipo]} - ${buildingName(c.building)}`, ids: connectorStops(c.id).map(n => n.id) })));
-  section('Paradas sin conexión en su piso', 'La parada no está unida a la red de su piso: desde ahí no se llega al resto.',
-    issues.unlinkedStops.map(n => {
-      const c = connectorOf(n);
-      return { label: `${c?.nombre || CONNECTOR_TYPES[c?.tipo] || 'Conector'} - ${placeLabel(n)}`, ids: [n.id] };
-    }));
+  section('Conectores sin conexión en un piso', 'En ese piso el conector no está unido a la red: desde ahí no se llega al resto.',
+    issues.unlinkedStops.map(({ c, n, ids }) => ({ label: `${c.nombre || CONNECTOR_TYPES[c.tipo]} - ${placeLabel(n)}`, ids })));
   if (issues.misplaced.length) {
     section('Nodos dentro de otro edificio', 'Están asignados a un edificio pero dentro del contorno de otro.',
       issues.misplaced.map(m => ({
