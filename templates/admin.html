@@ -1,8 +1,8 @@
 {% extends "base.html" %}
-{% block title %}<title>Admin & Editor - NaviUSM Studio</title>{% endblock %}
+{% block title %}<title>Editor de mapa - NaviUSM Studio</title>{% endblock %}
 {% block content %}
 <div class="topbar">
-  <select id="sede-selector" class="sede-select" onchange="onSedeChange()">
+  <select id="sede-selector" class="sede-select" onchange="onSedeChange()" aria-label="Sede">
     {% if not sedes %}
     <option value="">Sin sedes disponibles</option>
     {% else %}
@@ -14,200 +14,227 @@
 
   <div class="sep"></div>
 
-  <div class="mode-btns">
-    <button class="mmode view-mode on" id="btn-view" onclick="setMode('view')" title="Ver mapa sin editar (V)">👁
-      Ver</button>
-    <button class="mmode node-mode" id="btn-add" onclick="setMode('add')" title="Crear y editar nodos (N)">＋
-      Nodos</button>
-    <button class="mmode edge-mode" id="btn-edge" onclick="setMode('edge')" title="Conectar nodos (A)">⟵
-      Aristas</button>
-    <button class="mmode" id="btn-zonaseg" onclick="setMode('zonaseg')" title="Dibujar zonas seguras (Z)">▱
-      Zonas</button>
-    <button class="mmode" id="btn-edificio" onclick="setMode('edificio')" title="Dibujar edificios (E)">🏛
-      Edificios</button>
-    <button class="mmode delete-mode" id="btn-delete" onclick="setMode('delete')" title="Borrar elementos (D)">✕ Borrar
-      Elemento</button>
+  <div class="mode-btns" role="group" aria-label="Modo del editor">
+    <button class="mmode on" data-mode="view" onclick="setMode('view')" title="Ver el mapa sin editar (V)">
+      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+      <span>Ver</span>
+    </button>
+    <button class="mmode" data-mode="create" onclick="setMode('create')" title="Crear nodos, conexiones, edificios y zonas (C)">
+      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      <span>Crear</span>
+    </button>
+    <button class="mmode" data-mode="modify" onclick="setMode('modify')" title="Mover y editar elementos (M)">
+      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="m14 6 4 4"/></svg>
+      <span>Modificar</span>
+    </button>
+  </div>
+
+  <div id="create-options" class="mode-btns" role="group" aria-label="Opciones de creación" hidden>
+    <button id="btn-waypoints" class="mmode toggle" onclick="toggleWaypointMode()" aria-pressed="false"
+      title="Cada clic crea un punto de ruta conectado al anterior, sin menú (W)">
+      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+      <span>Puntos de ruta</span>
+    </button>
+    <button id="btn-stairs" class="mmode toggle" onclick="toggleStairsMode()" aria-pressed="false"
+      title="Las conexiones nuevas se marcan como escalera (E)">
+      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4v-4h4v-4h4V8h4"/></svg>
+      <span>Escalera</span>
+    </button>
   </div>
 
   <div class="topbar-right">
-    <span id="dirty-badge" class="dirty-badge" hidden>● Cambios sin publicar</span>
-    <div class="status-pill">
-      <div class="s-dot" id="sdot"></div>
-      <span id="status-txt">Listo</span>
-    </div>
-    <button class="btn-ed btn-ed-accent" onclick="publishToServer()">Publicar Mapa</button>
+    <button class="btn-ed btn-ed-accent" onclick="publishToServer()" title="Publicar el mapa (Ctrl/Cmd + S)">Publicar mapa</button>
   </div>
 </div>
 
 <div class="main" style="position: relative;">
   <div id="map"></div>
 
-  <!-- Toolbar flotante para edición de vértices -->
-  <div id="vertex-edit-toolbar"
-    style="display:none; position:absolute; top:20px; left:50%; transform:translateX(-50%); z-index:9999; background: var(--naviusm-surface); padding: 10px 20px; border-radius: 8px; border: 1px solid var(--naviusm-border); box-shadow: 0 4px 12px rgba(0,0,0,0.5);">
-    <span style="color: white; font-size: 13px; font-weight: bold; margin-right: 15px;">Editando contorno · arrastra
-      para mover · clic para agregar · clic derecho para quitar</span>
-    <button class="btn btn-sm btn-secondary me-2" onclick="cancelVertexEditing()">Cancelar (Esc)</button>
-    <button class="btn btn-sm btn-success" style="background: var(--naviusm-green); border: none; font-weight: bold;"
-      onclick="finishVertexEditing()">✅ Terminar Modificación</button>
+  <!-- Estado del mapa: esquina superior derecha, cada píldora alineada a la derecha por separado -->
+  <div class="map-status map-overlay">
+    <div class="status-pill" role="status" aria-live="polite">
+      <div class="s-dot" id="sdot"></div>
+      <span id="status-txt">Listo</span>
+    </div>
+    <span id="dirty-badge" class="dirty-badge" hidden>Cambios sin publicar</span>
   </div>
 
-  <div class="sidebar">
-    <div class="tab-pane" id="panel-default">
-      <div class="sec-hdr">Filtro de Visualización</div>
-      <div class="field" id="field-building-filter">
-        <label>EDIFICIO / ÁREA</label>
-        <select id="building-selector" class="form-select form-select-sm" style="font-size: 12px; font-weight: 600;"
-          onchange="changeBuilding()">
-          <option value="exterior">Campus (Exterior)</option>
-        </select>
+  <!-- Panel flotante: lugar visible, historial, leyenda y ayuda -->
+  <div id="map-panel" class="map-panel map-overlay">
+    <div class="panel-field panel-search">
+      <label class="panel-label" for="map-search">Buscar</label>
+      <div class="search-box">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="map-search" type="search" class="form-control form-control-sm" placeholder="Nodo o edificio"
+          autocomplete="off" title="Buscar nodos y edificios (/ o Ctrl/Cmd + F)" aria-controls="search-results">
       </div>
-      <div class="field">
-        <label>NIVEL / PISO</label>
-        <select id="floor-selector" class="form-select form-select-sm" style="font-size: 12px; font-weight: 600;"
-          onchange="changeFloor()">
-          <option value="1">Planta Baja (1)</option>
-        </select>
-      </div>
+      <div id="search-results" class="search-results" role="listbox" hidden></div>
+    </div>
+    <div class="panel-field">
+      <label class="panel-label" for="building-selector">Edificio / área</label>
+      <select id="building-selector" class="form-select form-select-sm" onchange="changeBuilding()">
+        <option value="exterior">Campus (exterior)</option>
+      </select>
+    </div>
+    <div class="panel-field">
+      <label class="panel-label" for="floor-selector">Piso</label>
+      <select id="floor-selector" class="form-select form-select-sm" onchange="changeFloor()">
+        <option value="1">Nivel 1</option>
+      </select>
+    </div>
+    <div class="panel-meta">Nodos en este piso: <strong id="st-nodes">0</strong></div>
 
-      <hr style="border-color: var(--naviusm-border); margin: 8px 0;">
-
-      <!-- LEYENDA (solo en modo Ver) -->
-      <div id="view-legend">
-        <div class="sec-hdr">Leyenda</div>
-        <ul class="legend-list">
-          <li><span class="legend-line"></span>Conexión</li>
-          <li><span class="legend-line legend-stairs"></span>Escalera</li>
-          <li><span class="legend-line legend-dashed"></span>Conexión entre pisos</li>
-          <li><span class="legend-area legend-safe"></span>Zona segura</li>
-          <li><span class="legend-area legend-building"></span>Contorno de edificio</li>
-        </ul>
-        <p class="text-muted" style="font-size: 11px; margin-top: 10px;">Haz clic en un elemento para ver su
-          información. Para editar, elige un modo en la barra superior.</p>
-        <p class="text-muted" style="font-size: 11px;">Atajos: <kbd>V</kbd> Ver · <kbd>N</kbd> Nodos ·
-          <kbd>A</kbd> Aristas · <kbd>Z</kbd> Zonas · <kbd>E</kbd> Edificios · <kbd>D</kbd> Borrar ·
-          <kbd>Esc</kbd> cancelar / volver a Ver
-          · <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>Z</kbd> deshacer eliminación
-        </p>
-      </div>
-
-      <!-- AYUDA DEL MODO BORRAR -->
-      <div id="delete-hint" style="display: none;">
-        <div class="sec-hdr">Borrar Elementos</div>
-        <p class="text-muted" style="font-size: 11px;">Haz clic en un nodo, conexión o zona para eliminarlo.
-          <b><kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>Z</kbd> deshace la última eliminación.</b>
-        </p>
-      </div>
-
-      <!-- SOLO PROPIEDADES DE CREACIÓN -->
-      <div id="node-creation-properties" style="display: none;">
-        <div class="sec-hdr">Configurar Nuevo Nodo</div>
-        <p class="text-muted mb-3" style="font-size: 11px;">Configura la información y haz clic en el mapa para crearlo.
-          <b>Para editar nodos existentes, haz clic sobre ellos en el mapa.</b>
-        </p>
-
-        <div class="field">
-          <select id="node-type-select" class="form-select form-select-sm" style="font-size: 13px;"
-            onchange="setSystemType(this)">
-            <option value="waypoint">🔵 Punto Ruta (Invisible)</option>
-            <option value="entrance">🚪 Entrada / Sala</option>
-            <option value="baño">🚽 Baño</option>
-            <option value="seguridad">👮🏻 Puesto Seguridad</option>
-            <option value="servicio">🏥 Servicio (Enfermería, Casino...)</option>
-          </select>
-        </div>
-
-        <div class="field" style="margin-top: 15px;">
-          <label>NOMBRE DEL PUNTO</label>
-          <input id="node-name-input" type="text" placeholder="Ej: Sala C-304, Casino...">
-        </div>
-
-        <div id="service-fields" style="display: none;">
-          <div class="field" style="margin-top: 10px;">
-            <label>ÍCONO</label>
-            <input id="node-icon-input" type="text" placeholder="🏥" maxlength="4"
-              style="width: 60px; text-align: center; font-size: 16px;">
-          </div>
-          <div class="field" style="margin-top: 10px;">
-            <label>HORARIO</label>
-            <input id="node-horario-input" type="text" placeholder="Ej: Lun a Vie, 8:30 - 17:00">
-          </div>
-          <div class="field" style="margin-top: 10px;">
-            <label>DESCRIPCIÓN BREVE</label>
-            <textarea id="node-descripcion-input" rows="3"
-              placeholder="Ej: Atención primaria y derivación a urgencias."></textarea>
-          </div>
-          <div class="field" style="margin-top: 10px;">
-            <label>LINK DE DERIVACIÓN</label>
-            <input id="node-link-input" type="url" placeholder="https://...">
-          </div>
-        </div>
-      </div>
-
-      <!-- CHECKBOX ESCALERA PARA CREAR CONEXIÓN -->
-      <div id="edge-creation-properties" style="display: none;">
-        <div class="sec-hdr">Crear Conexión</div>
-        <div class="field" style="flex-direction: row; align-items: center; gap: 10px; margin-top: 10px;">
-          <input type="checkbox" id="edge-escalera-input" style="width: 18px; height: 18px;">
-          <label for="edge-escalera-input" style="font-size: 13px; color: var(--naviusm-text); cursor: pointer;">
-            Es una escalera
-          </label>
-        </div>
-        <p class="text-muted" style="font-size: 11px; margin-top: 10px;">Marca la casilla antes de hacer clic en los dos
-          nodos a conectar. <b>Para editar conexiones existentes, haz clic en ellas.</b></p>
-      </div>
-
-      <div
-        style="display: flex; justify-content: space-between; align-items: center; margin-top: auto; padding-top: 20px; border-top: 1px solid var(--naviusm-border);">
-        <span style="font-size:11px; color:var(--naviusm-muted);">Total Nodos Piso: <strong
-            id="st-nodes">0</strong></span>
-      </div>
+    <div id="map-legend" hidden>
+      <div class="panel-label mb-2">Leyenda</div>
+      <ul class="legend-list">
+        <li><span class="legend-line"></span>Conexión</li>
+        <li><span class="legend-line legend-stairs"></span>Escalera</li>
+        <li><span class="legend-line legend-dashed"></span>Conexión entre pisos</li>
+        <li><span class="legend-area legend-safe"></span>Zona segura</li>
+        <li><span class="legend-area legend-building"></span>Contorno de edificio</li>
+      </ul>
     </div>
 
-    <div class="tab-pane" id="panel-zonaseg" style="display: none;">
-      <div class="sec-hdr">Dibujar Zona Segura</div>
-      <p class="text-muted mb-3" style="font-size: 11px;">Haz clic en el mapa para marcar los vértices. Clic derecho
-        sobre un vértice para quitarlo. <b>Para editar
-          zonas existentes, haz clic en ellas en el mapa.</b></p>
-      <div class="field">
-        <label>NOMBRE</label>
-        <input id="zonaseg-name-input" type="text" placeholder="Ej: Patio Central">
-      </div>
-      <div class="field">
-        <label>EDIFICIO ASOCIADO</label>
-        <select id="zonaseg-building-select" class="form-select form-select-sm"
-          style="font-size: 12px; font-weight: 600;">
-          <option value="exterior">Exterior / Campus</option>
-        </select>
-      </div>
-      <div style="margin-top: 15px; display: flex; gap: 8px;">
-        <button class="btn-ed btn-ed-ghost" style="flex:1;" onclick="cancelZoneDrawing()">Cancelar</button>
-      </div>
-      <button class="btn-ed btn-ed-accent" id="zonaseg-save-btn" disabled style="width: 100%; margin-top: 8px;"
-        onclick="confirmZoneConfig('zonaseg')">Guardar Zona</button>
+    <div class="panel-actions">
+      <button id="btn-undo" class="icon-btn" onclick="undo()" title="Deshacer (Ctrl/Cmd + Z)" aria-label="Deshacer" disabled>
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg>
+      </button>
+      <button id="btn-redo" class="icon-btn" onclick="redo()" title="Rehacer (Ctrl/Cmd + Shift + Z)" aria-label="Rehacer" disabled>
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m15 14 5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/></svg>
+      </button>
+      <span class="panel-sep"></span>
+      <button id="btn-review" class="icon-btn" onclick="reviewOpen ? closeReview() : openReview()" title="Revisar el mapa antes de publicar (R)" aria-label="Revisar el mapa">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><path d="m3 6 1.5 1.5L7 5M3 12l1.5 1.5L7 11M3 18l1.5 1.5L7 17"/></svg>
+      </button>
+      <button id="btn-hints" class="icon-btn" onclick="toggleHints()" title="Ayudas junto al cursor (H)" aria-label="Ayudas junto al cursor" aria-pressed="true">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m4 4 6 15 2-6 6-2L4 4z"/></svg>
+      </button>
+      <button id="btn-legend" class="icon-btn" onclick="toggleLegend()" title="Mostrar u ocultar la leyenda (L)" aria-label="Leyenda" aria-expanded="false">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5 9-5z"/><path d="m3 13 9 5 9-5"/></svg>
+      </button>
+      <button class="icon-btn" onclick="openHelp()" title="Atajos y ayuda (?)" aria-label="Atajos y ayuda">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14"/><path d="M12 17h.01"/></svg>
+      </button>
     </div>
+  </div>
 
-    <div class="tab-pane" id="panel-edificio" style="display: none;">
-      <div class="sec-hdr">Dibujar Edificio</div>
+  <!-- Barra de dibujo (zona segura o edificio nuevo) -->
+  <div id="draw-bar" class="map-bar" hidden>
+    <span class="map-bar-title" id="draw-title">Dibujando</span>
+    <input id="draw-name" class="form-control form-control-sm" type="text" maxlength="255" placeholder="Nombre">
+    <select id="draw-building" class="form-select form-select-sm" aria-label="Edificio asociado"></select>
+    <button class="btn btn-sm btn-secondary" onclick="cancelDrawing()">Cancelar</button>
+    <button class="btn btn-sm btn-accent" id="draw-save" onclick="saveDrawing()" disabled>Guardar</button>
+    <span class="map-bar-hint" id="draw-hint"></span>
+  </div>
 
-      <div class="ui-guide-box" id="bld-guide-step1">
-        <strong>Paso 1:</strong> Haz clic exactamente donde está el acceso principal del edificio.
-      </div>
-      <div class="ui-guide-box" id="bld-guide-step2" style="display: none; border-color: var(--naviusm-green);">
-        <strong>Paso 2:</strong> Haz clic en el mapa para marcar las esquinas del edificio. Clic derecho sobre una
-        esquina para quitarla.
-      </div>
+  <!-- Barra de trazado de ruta -->
+  <div id="route-bar" class="map-bar" hidden>
+    <span class="map-bar-title">Trazando ruta</span>
+    <button class="btn btn-sm btn-accent" onclick="endRoute()">Terminar</button>
+    <span class="map-bar-hint">Clic: siguiente punto - Clic en un nodo: conectar y seguir - Clic en una conexión: dividirla y conectar - Ctrl/Cmd+Z: quitar el último - Enter o Esc: terminar</span>
+  </div>
 
-      <div class="field" style="margin-top: 15px;">
-        <label>NOMBRE DEL EDIFICIO</label>
-        <input id="edificio-name-input" type="text" placeholder="Ej: Edificio A">
-      </div>
+  <!-- Revisión antes de publicar -->
+  <div id="review-panel" class="review-panel map-overlay" hidden>
+    <div class="review-head">
+      <span class="map-bar-title">Revisión del mapa</span>
+      <button type="button" class="btn-close btn-close-sm" onclick="closeReview()" aria-label="Cerrar revisión"></button>
+    </div>
+    <div id="review-summary" class="panel-meta"></div>
+    <div id="review-body" class="review-body"></div>
+    <div class="panel-actions review-actions">
+      <button class="btn btn-sm btn-secondary" onclick="closeReview()">Cerrar</button>
+      <button class="btn btn-sm btn-accent" id="review-publish" onclick="publishToServer({ skipReview: true })">Publicar</button>
+    </div>
+  </div>
 
-      <div style="margin-top: 15px; display: flex; gap: 8px;">
-        <button class="btn-ed btn-ed-ghost" style="flex:1;" onclick="cancelZoneDrawing()">Cancelar</button>
+  <!-- Ayuda junto al cursor -->
+  <div id="cursor-hint" class="cursor-hint" aria-hidden="true" hidden></div>
+
+  <!-- Barra de edición de contorno -->
+  <div id="vertex-bar" class="map-bar" hidden>
+    <span class="map-bar-title">Editando contorno</span>
+    <button class="btn btn-sm btn-secondary" onclick="cancelVertexEditing()">Cancelar</button>
+    <button class="btn btn-sm btn-accent" onclick="finishVertexEditing()">Terminar</button>
+    <span class="map-bar-hint">Arrastra para mover - Clic para agregar un punto - Clic derecho o Supr sobre un punto para quitarlo - Enter termina - Esc cancela</span>
+  </div>
+</div>
+
+<!-- Atajos y ayuda -->
+<div class="modal fade" id="helpModal" tabindex="-1" aria-labelledby="helpTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title fw-bold" id="helpTitle">Atajos y ayuda</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
-      <button class="btn-ed btn-ed-accent" id="edificio-save-btn" disabled style="width: 100%; margin-top: 8px;"
-        onclick="confirmZoneConfig('edificio')">Guardar Edificio</button>
+      <div class="modal-body">
+        <p class="panel-meta mb-3">Los cambios sin publicar se guardan en este navegador: si cierras la página sin publicar, al volver a abrir la sede se ofrece recuperarlos.</p>
+        <div class="help-grid">
+          <section>
+            <h6>Modos</h6>
+            <dl>
+              <dt><kbd>V</kbd></dt><dd>Ver: consultar sin editar</dd>
+              <dt><kbd>C</kbd></dt><dd>Crear: nodos, conexiones, edificios y zonas</dd>
+              <dt><kbd>M</kbd></dt><dd>Modificar: mover y editar</dd>
+              <dt><kbd>Esc</kbd></dt><dd>Cancelar lo que estés haciendo; si no hay nada, volver a Ver</dd>
+            </dl>
+          </section>
+          <section>
+            <h6>Crear</h6>
+            <dl>
+              <dt>Clic en el mapa</dt><dd>Abre el menú para elegir qué crear</dd>
+              <dt><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></dt><dd>En el menú: Nodo, Edificio, Zona segura (siempre las mismas teclas)</dd>
+              <dt><kbd>1</kbd> ... <kbd>5</kbd></dt><dd>En "Nodo": elegir el tipo</dd>
+              <dt><kbd>0</kbd></dt><dd>En el menú: repetir lo último que creaste</dd>
+              <dt><kbd>Shift</kbd> + clic</dt><dd>Repetir lo último que creaste; si tiene datos, abre su formulario</dd>
+              <dt><kbd>W</kbd></dt><dd>"Puntos de ruta": cada clic crea un punto conectado al anterior; clic en un nodo lo conecta y sigue desde él; <kbd>Enter</kbd> o <kbd>Esc</kbd> termina la ruta</dd>
+              <dt>Clic en un nodo</dt><dd>Empieza una conexión; clic en otro nodo la termina</dd>
+              <dt>Clic en una conexión</dt><dd>La divide con un punto de ruta (si hay una ruta o conexión en curso, también lo conecta)</dd>
+              <dt><kbd>E</kbd></dt><dd>Las conexiones nuevas se marcan como escalera</dd>
+            </dl>
+          </section>
+          <section>
+            <h6>Modificar</h6>
+            <dl>
+              <dt>Clic en un elemento</dt><dd>Seleccionarlo y editar sus datos</dd>
+              <dt>Arrastrar un nodo</dt><dd>Moverlo</dd>
+              <dt><kbd>Enter</kbd></dt><dd>Guardar el formulario abierto</dd>
+              <dt>Zona: "Modificar contorno"</dt><dd>Mover, agregar o quitar puntos del contorno</dd>
+            </dl>
+          </section>
+          <section>
+            <h6>Eliminar</h6>
+            <dl>
+              <dt>Clic derecho</dt><dd>Eliminar el nodo, conexión, zona o punto bajo el cursor (en Crear y Modificar)</dd>
+              <dt><kbd>Supr</kbd> / <kbd>Backspace</kbd></dt><dd>Eliminar el elemento bajo el cursor o el seleccionado</dd>
+            </dl>
+          </section>
+          <section>
+            <h6>General</h6>
+            <dl>
+              <dt><kbd>Ctrl/Cmd</kbd> + <kbd>Z</kbd></dt><dd>Deshacer cualquier cambio</dd>
+              <dt><kbd>Ctrl/Cmd</kbd> + <kbd>Shift</kbd> + <kbd>Z</kbd></dt><dd>Rehacer (también <kbd>Ctrl</kbd> + <kbd>Y</kbd>)</dd>
+              <dt><kbd>Ctrl/Cmd</kbd> + <kbd>S</kbd></dt><dd>Publicar el mapa (si hay avisos, primero muestra la revisión)</dd>
+              <dt><kbd>/</kbd> o <kbd>Ctrl/Cmd</kbd> + <kbd>F</kbd></dt><dd>Buscar nodos y edificios (flechas para elegir, <kbd>Enter</kbd> para ir)</dd>
+              <dt><kbd>R</kbd></dt><dd>Revisar el mapa: puntos sin conexión, grupos desconectados y sin nombre</dd>
+              <dt><kbd>H</kbd></dt><dd>Mostrar u ocultar las ayudas junto al cursor</dd>
+              <dt><kbd>L</kbd></dt><dd>Mostrar u ocultar la leyenda</dd>
+              <dt><kbd>?</kbd></dt><dd>Abrir esta ayuda</dd>
+            </dl>
+          </section>
+          <section>
+            <h6>Dibujar edificios y zonas</h6>
+            <dl>
+              <dt>Clic</dt><dd>Agregar un punto (en edificios, el punto donde abriste el menú es el acceso)</dd>
+              <dt><kbd>Ctrl/Cmd</kbd> + <kbd>Z</kbd></dt><dd>Quitar el último punto</dd>
+              <dt><kbd>Enter</kbd></dt><dd>Guardar</dd>
+              <dt><kbd>Esc</kbd></dt><dd>Cancelar el dibujo</dd>
+            </dl>
+          </section>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -216,7 +243,7 @@
   window.APP_CONFIG = {
     rootPath: "{{ request.scope.get('root_path', '') }}",
     sedesInfo: {{ sedes_json | tojson | safe }}
-    };
+  };
 </script>
-<script src="{{ url_for('static', path='js/admin.js') }}?v=0.4.6"></script>
+<script src="{{ url_for('static', path='js/admin.js') }}?v=0.6.1"></script>
 {% endblock %}

@@ -34,7 +34,7 @@ function renderTabla() {
 
   tbody.innerHTML = blds.map(b => `
     <tr>
-      <td class="align-middle fw-bold" style="color: white;">${escapeHtml(b.name)}</td>
+      <td class="align-middle fw-bold" style="color: var(--naviusm-text-strong);">${escapeHtml(b.name)}</td>
       <td class="text-center align-middle">
         <div class="d-flex justify-content-center align-items-center gap-3">
           <span class="text-muted" style="font-size: 11px;">Desde</span>
