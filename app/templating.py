@@ -47,4 +47,6 @@ templates.env.globals["map_tiles"] = {
     "url": settings.map_tile_url,
     "attribution": settings.map_tile_attribution,
     "max_zoom": settings.map_tile_max_zoom,
+    "style_url": settings.map_style_url or None,
+    "style_attribution": settings.map_style_attribution,
 }

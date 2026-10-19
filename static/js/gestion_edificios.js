@@ -5,11 +5,6 @@
 // =============================================================================
 const ROOT_PATH = NV.site().rootPath;
 const sedesInfo = NV.page().sedesInfo;
-const MAP_TILES = NV.site().mapTiles || {
-  url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors',
-  max_zoom: 19,
-};
 
 let sedeId = sedesInfo.length > 0 ? sedesInfo[0].id : null;
 let snapshot = null;        // último snapshot publicado
@@ -441,8 +436,8 @@ function verPiso(w, p) {
 
 function dibujarPiso(bid, nodos) {
   if (!pisoMap) {
-    pisoMap = L.map('piso-map', { zoomControl: true, maxZoom: 22 });
-    L.tileLayer(MAP_TILES.url, { maxZoom: 22, maxNativeZoom: MAP_TILES.max_zoom, attribution: MAP_TILES.attribution }).addTo(pisoMap);
+    pisoMap = L.map('piso-map', { zoomControl: true, maxZoom: NV.mapMaxZoom() });
+    NV.baseLayer(pisoMap);
   }
   pisoMap.invalidateSize();
   if (pisoLayer) pisoLayer.remove();

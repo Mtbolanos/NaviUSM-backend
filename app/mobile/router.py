@@ -10,6 +10,7 @@ from app.api_keys.crud import get_active_key_by_id, get_active_key_by_raw
 from app.config import settings
 from app.database import get_db
 from app.grafo.crud import get_latest_snapshot
+from app.sedes.crud import contornos_by_org
 from app.mobile.session import decode_session_token, issue_session_token
 from app.models import ApiKey, Organizacion, Sede
 
@@ -33,6 +34,9 @@ class SedeOut(BaseModel):
     lat: float
     lng: float
     zoom: int
+    # Contorno del campus: anillo exterior [[lng, lat], ...] (cerrado), o null si la sede no tiene.
+    # Campo agregado en 1.3.0; los clientes que no lo conocen pueden ignorarlo.
+    contorno: list[list[float]] | None = None
 
 
 class OrganizacionOut(BaseModel):
@@ -90,12 +94,18 @@ def create_session(raw_key: str | None = Security(api_key_header), db: Session =
     responses={401: {"description": "Token ausente, inválido o expirado"}},
 )
 def get_organizacion(api_key: ApiKey = Depends(require_session), db: Session = Depends(get_db)):
-    """Datos de la organización dueña de la API key y la lista de sus sedes."""
+    """Datos de la organización dueña de la API key y la lista de sus sedes.
+
+    Cada sede trae `contorno`: el límite del campus como anillo `[[lng, lat], ...]` cerrado, o `null` si la
+    sede no tiene (campo opcional agregado en 1.3.0).
+    """
     org = db.query(Organizacion).filter(Organizacion.id == api_key.organizacion_id).first()
     sedes = db.query(Sede).filter(Sede.organizacion_id == api_key.organizacion_id).order_by(Sede.nombre).all()
+    contornos = contornos_by_org(db, api_key.organizacion_id)
     return OrganizacionOut(
         id=str(org.id), slug=org.slug, nombre=org.nombre,
-        sedes=[SedeOut(uuid=str(s.id), nombre=s.nombre, lat=float(s.latitud), lng=float(s.longitud), zoom=s.zoom_defecto) for s in sedes],
+        sedes=[SedeOut(uuid=str(s.id), nombre=s.nombre, lat=float(s.latitud), lng=float(s.longitud), zoom=s.zoom_defecto,
+                       contorno=contornos.get(str(s.id))) for s in sedes],
     )
 
 

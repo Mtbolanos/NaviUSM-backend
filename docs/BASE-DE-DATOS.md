@@ -34,7 +34,7 @@ o sede. Las tablas tienen RLS habilitado sin políticas: la aplicación se conec
 
 | Tabla | Columnas | Notas |
 |---|---|---|
-| `sede` | `id`, `organizacion_id`, `nombre`, `latitud`, `longitud`, `zoom_defecto`, `created_at` | Campus. Borrar una sede borra en cascada todo su mapa. |
+| `sede` | `id`, `organizacion_id`, `nombre`, `latitud`, `longitud`, `zoom_defecto`, `contorno` (Polygon 4326, opcional), `created_at` | Campus. Borrar una sede borra en cascada todo su mapa. `contorno`: límite del campus; si existe, el editor no permite nodos fuera de él y la app lo recibe en `GET /api/organizacion` (`sedes[].contorno`). Un solo anillo, 3 a 500 vértices, sin autointersecciones (se valida al guardar). |
 | `snapshot` | `id`, `sede_id`, `organizacion_id`, `payload` (jsonb), `version`, `published_at` | Mapa publicado. `version` crece de a 1 por sede. Formato del payload: `docs/CAMBIOS-JSON-SNAPSHOT.md`. |
 
 ### Grafo (se reescribe en cada publicación)
@@ -93,12 +93,13 @@ Todas las FK son `ON DELETE CASCADE`, salvo `api_key.created_by` y `nodo.conecto
 | `migraciones/002_api_keys.sql` | Tabla `api_key`. |
 | `migraciones/003_edificio_pisos.sql` | Tabla `edificio_piso`, columna `edificio.piso_acceso`, conversión de `piso_min`/`piso_max` (se eliminan) y eliminación de `sala`. Idempotente. |
 | `migraciones/004_conectores.sql` | Tabla `conector` y columna `nodo.conector_id`. Idempotente. |
+| `migraciones/005_sede_contorno.sql` | Columna `sede.contorno` (opcional). Idempotente. |
 
 Aplicar una migración (respaldar antes):
 
 ```
 docker compose exec -T db pg_dump -U naviusm -d naviusm -Fc > respaldo.dump
-docker compose exec -T db psql -U naviusm -d naviusm -v ON_ERROR_STOP=1 < migraciones/004_conectores.sql
+docker compose exec -T db psql -U naviusm -d naviusm -v ON_ERROR_STOP=1 < migraciones/005_sede_contorno.sql
 ```
 
 Toda migración nueva se refleja también en `schema_actualizado.sql` y en este documento.

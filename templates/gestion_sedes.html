@@ -6,69 +6,92 @@
  <div class="page-inner">
   <div class="page-header">
     <h3>Sedes administradas</h3>
-    <button class="btn btn-sm btn-accent" data-bs-toggle="modal" data-bs-target="#newSedeModal">+ Agregar sede</button>
+    <button class="btn btn-sm btn-accent" onclick="abrirSede()">+ Agregar sede</button>
   </div>
 
   <div class="row">
-    {% for sede in sedes %}
-    <div class="col-md-4 mb-3">
+    {% for sede in sedes_json %}
+    <div class="col-md-6 col-lg-4 mb-3">
       <div class="nv-card h-100 d-flex flex-column">
-        <div class="d-flex flex-column flex-grow-1">
-          <h5 class="card-title-strong">{{ sede.nombre }}</h5>
-          <p class="panel-meta">Lat: {{ sede.latitud }} | Lng: {{ sede.longitud }}</p>
-          <button class="btn btn-sm btn-danger w-100 mt-auto" data-id="{{ sede.id }}" data-nombre="{{ sede.nombre }}"
-            onclick="eliminarSede(this.dataset.id, this.dataset.nombre)">Eliminar sede</button>
+        <h5 class="card-title-strong">{{ sede.nombre }}</h5>
+        <p class="panel-meta mb-1">Lat: {{ '%.6f' | format(sede.lat) }} | Lng: {{ '%.6f' | format(sede.lng) }} | Zoom: {{ sede.zoom }}</p>
+        <p class="panel-meta">{{ 'Con contorno (' ~ (sede.contorno | length - 1) ~ ' vértices)' if sede.contorno else 'Sin contorno: el editor no limita el área' }}</p>
+        <div class="d-flex gap-2 mt-auto">
+          <button class="btn btn-sm btn-secondary flex-fill" data-id="{{ sede.id }}" onclick="abrirSede(this.dataset.id)">Editar</button>
+          <button class="btn btn-sm btn-danger flex-fill" data-id="{{ sede.id }}" data-nombre="{{ sede.nombre }}"
+            onclick="eliminarSede(this.dataset.id, this.dataset.nombre)">Eliminar</button>
         </div>
       </div>
     </div>
+    {% else %}
+    <div class="col-12"><div class="nv-card panel-meta text-center py-4">Aún no hay sedes. Agrega la primera.</div></div>
     {% endfor %}
   </div>
  </div>
 </div>
 
-<div class="modal fade" id="newSedeModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered modal-lg">
+<!-- Crear / editar sede -->
+<div class="modal fade" id="sedeModal" tabindex="-1" aria-labelledby="sedeModalTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-xl">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title fw-bold">Crear nueva sede</h5>
+        <h5 class="modal-title fw-bold" id="sedeModalTitle">Nueva sede</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
       <div class="modal-body p-0">
-        <!-- Contenedor del Mapa y Buscador -->
         <div class="ns-map-wrap">
           <div class="ns-search">
             <div class="d-flex gap-2">
               <input type="text" id="ns-search" class="form-control form-control-sm shadow-sm"
                 placeholder="Buscar dirección, universidad o lugar..."
                 onkeydown="if(event.key==='Enter') searchLocation()">
-              <button class="btn btn-sm btn-accent shadow-sm" onclick="searchLocation()">Buscar</button>
+              <button class="btn btn-sm btn-accent shadow-sm" id="ns-search-btn" onclick="searchLocation()">Buscar</button>
             </div>
             <div class="form-check form-switch mt-1 d-inline-flex align-items-center gap-2 ns-switch">
               <input class="form-check-input" type="checkbox" id="ns-solo-recintos" checked>
               <label class="form-check-label" for="ns-solo-recintos">Solo recintos (sin calles ni direcciones)</label>
             </div>
-            <!-- Div de resultados de búsqueda -->
             <div id="ns-search-results" class="list-group shadow mt-1 ns-results" hidden></div>
           </div>
           <div id="ns-map" class="ns-map"></div>
+          <div id="ns-hint" class="ns-hint"></div>
         </div>
 
-        <div class="p-3 pb-2">
-          <label class="form-label panel-label" for="ns-nombre">Nombre de la sede</label>
-          <input type="text" class="form-control" id="ns-nombre" placeholder="Ej: Sede Concepción">
+        <div class="ns-form">
+          <div class="ns-field ns-field-name">
+            <label class="form-label panel-label" for="ns-nombre">Nombre de la sede</label>
+            <input type="text" class="form-control form-control-sm" id="ns-nombre" maxlength="255" placeholder="Ej: Sede Concepción">
+          </div>
+          <div class="ns-field">
+            <label class="form-label panel-label" for="ns-zoom">Zoom inicial</label>
+            <div class="d-flex gap-2">
+              <input type="number" class="form-control form-control-sm ns-zoom" id="ns-zoom" min="1" max="22" step="1" value="18">
+              <button type="button" class="btn btn-sm btn-secondary" onclick="usarZoomActual()" title="Usar el zoom con que se ve el mapa ahora">Usar el actual</button>
+            </div>
+          </div>
+          <div class="ns-field ns-field-contour">
+            <span class="form-label panel-label d-block">Contorno (opcional)</span>
+            <div class="d-flex gap-2 flex-wrap">
+              <button type="button" class="btn btn-sm btn-secondary" id="ns-draw" onclick="dibujarContorno()">Dibujar contorno</button>
+              <button type="button" class="btn btn-sm btn-accent" id="ns-finish" onclick="terminarContorno()" hidden>Terminar</button>
+              <button type="button" class="btn btn-sm btn-secondary" id="ns-cancel-draw" onclick="cancelarDibujo()" hidden>Cancelar dibujo</button>
+              <button type="button" class="btn btn-sm btn-danger" id="ns-clear" onclick="borrarContorno()" hidden>Borrar contorno</button>
+            </div>
+            <span id="ns-contour-meta" class="panel-meta"></span>
+          </div>
         </div>
       </div>
-      <div class="modal-footer d-flex justify-content-between align-items-center">
-        <div class="ns-coords">
-          <span id="ns-lat-disp">-33.036577</span>, <span id="ns-lng-disp">-71.486578</span>
-        </div>
-        <div class="d-flex gap-2">
+      <div class="modal-footer">
+        <span class="ns-coords me-auto" title="Centro de la sede (el marcador)"><span id="ns-lat-disp"></span>, <span id="ns-lng-disp"></span></span>
+        <div class="d-flex gap-2 flex-shrink-0">
           <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-          <button type="button" class="btn btn-sm btn-accent" onclick="submitNuevaSede()">Crear sede</button>
+          <button type="button" class="btn btn-sm btn-accent" id="ns-save" onclick="guardarSede()">Crear sede</button>
         </div>
       </div>
     </div>
   </div>
 </div>
 
+<script type="application/json" id="page-config">{{ {"sedes": sedes_json} | tojson }}</script>
 <script src="{{ asset('js/gestion_sedes.js') }}"></script>
 {% endblock %}

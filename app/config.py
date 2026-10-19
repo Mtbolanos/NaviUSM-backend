@@ -31,6 +31,14 @@ class Settings(BaseSettings):
     map_tile_url: str = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
     map_tile_attribution: str = '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors'
     map_tile_max_zoom: int = 19                  # zoom máximo que entrega el servidor; más allá se amplía el último nivel
+    # Mapa vectorial (MapLibre GL): nítido a cualquier zoom. Vacío = solo el mapa raster de arriba, que
+    # también se usa si el vectorial no carga en el navegador.
+    map_style_url: str = "https://tiles.openfreemap.org/styles/liberty"
+    map_style_attribution: str = (
+        '<a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> '
+        '&copy; <a href="https://www.openmaptiles.org/" target="_blank" rel="noopener">OpenMapTiles</a> '
+        'Datos de <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>'
+    )
     
     @field_validator("secret_key")
     @classmethod

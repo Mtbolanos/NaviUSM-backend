@@ -435,7 +435,8 @@ body {
 }
 
 /* Mapa oscuro solo en el tema oscuro */
-:root[data-theme="dark"] .leaflet-tile {
+:root[data-theme="dark"] .leaflet-tile,
+:root[data-theme="dark"] .leaflet-gl-layer canvas {
   filter: invert(1) hue-rotate(180deg) brightness(0.95) contrast(1.1) saturate(0.85) !important;
 }
 
@@ -2079,4 +2080,99 @@ label.panel-label {
 /* Ventana de pisos: usa el ancho disponible (Bootstrap la deja en 500px bajo 992px) */
 #floorsModal .modal-dialog {
   max-width: min(1140px, calc(100vw - 32px));
+}
+
+/* ===== Gestión de sedes: ventana de crear / editar ===== */
+#sedeModal .ns-map {
+  height: min(460px, 55vh);
+}
+
+#ns-map.is-drawing {
+  cursor: crosshair;
+}
+
+.ns-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 30px;
+  transform: translateX(-50%);
+  z-index: 1000;
+  max-width: calc(100% - 24px);
+  padding: 6px 12px;
+  border-radius: 7px;
+  font-size: 12px;
+  background: var(--naviusm-surface);
+  color: var(--naviusm-text);
+  border: 1px solid var(--naviusm-border);
+  box-shadow: 0 4px 16px var(--naviusm-shadow);
+  pointer-events: none;
+}
+
+.ns-hint[hidden],
+.ns-hint:empty {
+  display: none;
+}
+
+/* La ventana usa el ancho disponible (Bootstrap la deja en 500px bajo 992px) y el formulario se acomoda
+   según el ancho de la ventana, no el de la pantalla */
+#sedeModal .modal-dialog {
+  max-width: min(1000px, calc(100vw - 32px));
+}
+
+#sedeModal .modal-body {
+  container-type: inline-size;
+}
+
+.ns-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1.3fr);
+  gap: 16px 20px;
+  padding: 16px;
+  align-items: start;
+}
+
+.ns-form > * {
+  min-width: 0;
+}
+
+#ns-contour-meta {
+  display: block;
+  margin-top: 6px;
+}
+
+.ns-zoom {
+  width: 80px;
+}
+
+.ns-vertex {
+  background: var(--naviusm-surface);
+  border: 2px solid var(--naviusm-accent);
+  border-radius: 50%;
+  cursor: grab;
+}
+
+.ns-vertex.is-first {
+  background: var(--naviusm-accent);
+  cursor: pointer;
+}
+
+.ns-vertex.is-mid {
+  opacity: 0.6;
+}
+
+
+@container (max-width: 820px) {
+  .ns-form {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .ns-field-contour {
+    grid-column: 1 / -1;
+  }
+}
+
+@container (max-width: 480px) {
+  .ns-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
