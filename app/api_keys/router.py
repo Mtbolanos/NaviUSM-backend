@@ -2,7 +2,6 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.api_keys.crud import create_api_key, list_api_keys, revoke_api_key
@@ -11,9 +10,9 @@ from app.database import get_db
 from app.models import Usuario
 from app.security import get_current_user
 
+from app.templating import templates
+
 router = APIRouter()
-templates = Jinja2Templates(directory="templates")
-templates.env.cache = None
 
 
 @router.get("/admin/api-keys")

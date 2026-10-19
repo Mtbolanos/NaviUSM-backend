@@ -25,6 +25,9 @@
   --naviusm-mono: 'Space Mono', monospace;
   --naviusm-select-arrow: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23e0eaf5' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3e%3c/svg%3e");
   --radius: 8px;
+  /* Botón secundario: más oscuro que cualquier fondo donde aparece (página, barras, tarjetas, popups) */
+  --btn-neutral-bg: #08101a;
+  --btn-neutral-hover: #1e3050;
   color-scheme: dark;
 }
 
@@ -47,6 +50,8 @@
   --naviusm-muted: #5f6e84;
   --naviusm-shadow: rgba(15, 23, 42, 0.16);
   --naviusm-select-arrow: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%231b2533' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3e%3c/svg%3e");
+  --btn-neutral-bg: #dfe4eb;
+  --btn-neutral-hover: #ccd3dd;
   color-scheme: light;
 }
 
@@ -129,6 +134,130 @@ body {
   box-shadow: none;
 }
 
+/* ===== Botones =====
+   Un solo estilo para todo el sitio. Variantes:
+     .btn-accent    acción principal (Guardar, Publicar, Crear)
+     .btn-secondary acción secundaria / neutra (Cancelar, Ver, Agregar)
+     .btn-danger    acción destructiva (Eliminar, Revocar)
+     .btn-success   confirmación positiva (Copiar)
+     .btn-link      acción como enlace
+   .btn-sm usa el mismo tamaño: hay un solo tamaño de botón. */
+.btn {
+  --bs-btn-font-family: inherit;
+  --bs-btn-font-size: 12px;
+  --bs-btn-font-weight: 600;
+  --bs-btn-line-height: 1.4;
+  --bs-btn-padding-x: 14px;
+  --bs-btn-padding-y: 6px;
+  --bs-btn-border-radius: 7px;
+  --bs-btn-border-width: 1px;
+  --bs-btn-focus-box-shadow: 0 0 0 2px color-mix(in srgb, var(--naviusm-accent) 45%, transparent);
+  --bs-btn-disabled-opacity: 0.45;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+
+.btn-accent {
+  --bs-btn-bg: var(--naviusm-accent);
+  --bs-btn-color: var(--naviusm-on-accent);
+  --bs-btn-border-color: var(--naviusm-accent);
+  --bs-btn-hover-bg: var(--naviusm-accent-hover);
+  --bs-btn-hover-color: var(--naviusm-on-accent);
+  --bs-btn-hover-border-color: var(--naviusm-accent-hover);
+  --bs-btn-active-bg: var(--naviusm-accent-hover);
+  --bs-btn-active-color: var(--naviusm-on-accent);
+  --bs-btn-active-border-color: var(--naviusm-accent-hover);
+  --bs-btn-disabled-bg: var(--naviusm-accent);
+  --bs-btn-disabled-color: var(--naviusm-on-accent);
+  --bs-btn-disabled-border-color: var(--naviusm-accent);
+}
+
+.btn-secondary {
+  --bs-btn-bg: var(--btn-neutral-bg);
+  --bs-btn-color: var(--naviusm-text-strong);
+  --bs-btn-border-color: var(--naviusm-border);
+  --bs-btn-hover-bg: var(--btn-neutral-hover);
+  --bs-btn-hover-color: var(--naviusm-text-strong);
+  --bs-btn-hover-border-color: var(--naviusm-muted);
+  --bs-btn-active-bg: var(--btn-neutral-hover);
+  --bs-btn-active-color: var(--naviusm-text-strong);
+  --bs-btn-active-border-color: var(--naviusm-muted);
+  --bs-btn-disabled-bg: var(--btn-neutral-bg);
+  --bs-btn-disabled-color: var(--naviusm-muted);
+  --bs-btn-disabled-border-color: var(--naviusm-border);
+}
+
+.btn-danger {
+  --bs-btn-bg: var(--naviusm-red-dim);
+  --bs-btn-color: var(--naviusm-red);
+  --bs-btn-border-color: color-mix(in srgb, var(--naviusm-red) 25%, transparent);
+  --bs-btn-hover-bg: color-mix(in srgb, var(--naviusm-red) 22%, transparent);
+  --bs-btn-hover-color: var(--naviusm-red);
+  --bs-btn-hover-border-color: color-mix(in srgb, var(--naviusm-red) 45%, transparent);
+  --bs-btn-active-bg: color-mix(in srgb, var(--naviusm-red) 30%, transparent);
+  --bs-btn-active-color: var(--naviusm-red);
+  --bs-btn-active-border-color: var(--naviusm-red);
+  --bs-btn-disabled-bg: var(--naviusm-red-dim);
+  --bs-btn-disabled-color: var(--naviusm-red);
+  --bs-btn-disabled-border-color: transparent;
+}
+
+.btn-success {
+  --bs-btn-bg: var(--naviusm-green-dim);
+  --bs-btn-color: var(--naviusm-green);
+  --bs-btn-border-color: color-mix(in srgb, var(--naviusm-green) 30%, transparent);
+  --bs-btn-hover-bg: color-mix(in srgb, var(--naviusm-green) 22%, transparent);
+  --bs-btn-hover-color: var(--naviusm-green);
+  --bs-btn-hover-border-color: color-mix(in srgb, var(--naviusm-green) 50%, transparent);
+  --bs-btn-active-bg: color-mix(in srgb, var(--naviusm-green) 30%, transparent);
+  --bs-btn-active-color: var(--naviusm-green);
+  --bs-btn-active-border-color: var(--naviusm-green);
+}
+
+.btn-link {
+  --bs-btn-color: var(--naviusm-accent);
+  --bs-btn-hover-color: var(--naviusm-accent-hover);
+  --bs-btn-active-color: var(--naviusm-accent-hover);
+  --bs-btn-padding-x: 4px;
+  text-decoration: none;
+}
+
+.btn-link:hover {
+  text-decoration: underline;
+}
+
+/* Insignias de estado (tablas) */
+.nv-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--naviusm-surface2);
+  color: var(--naviusm-muted);
+  border: 1px solid var(--naviusm-border);
+}
+
+.nv-badge-ok {
+  background: var(--naviusm-green-dim);
+  color: var(--naviusm-green);
+  border-color: color-mix(in srgb, var(--naviusm-green) 30%, transparent);
+}
+
+.nv-badge-warn {
+  background: color-mix(in srgb, var(--naviusm-accent) 14%, transparent);
+  color: var(--naviusm-accent);
+  border-color: color-mix(in srgb, var(--naviusm-accent) 35%, transparent);
+}
+
+.text-danger {
+  color: var(--naviusm-red) !important;
+}
+
+.mono {
+  font-family: var(--naviusm-mono);
+}
+
 .topbar {
   background: var(--naviusm-bg);
   border-bottom: 1px solid var(--naviusm-border);
@@ -180,37 +309,6 @@ body {
 .mmode.on {
   background: var(--naviusm-surface2);
   color: var(--naviusm-text);
-}
-
-.btn-ed {
-  padding: 6px 14px;
-  border-radius: 7px;
-  border: none;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.btn-ed-accent {
-  background: var(--naviusm-accent);
-  color: var(--naviusm-on-accent);
-}
-
-.btn-ed-accent:hover {
-  background: var(--naviusm-accent-hover);
-}
-
-.btn-ed-ghost {
-  background: var(--naviusm-surface2);
-  color: var(--naviusm-text);
-  border: 1px solid var(--naviusm-border);
-}
-
-.btn-ed-danger {
-  background: var(--naviusm-red-dim);
-  color: var(--naviusm-red);
-  border: 1px solid rgba(255, 71, 87, 0.2);
 }
 
 .topbar-right {
@@ -337,7 +435,8 @@ body {
 }
 
 /* Mapa oscuro solo en el tema oscuro */
-:root[data-theme="dark"] .leaflet-tile {
+:root[data-theme="dark"] .leaflet-tile,
+:root[data-theme="dark"] .leaflet-gl-layer canvas {
   filter: invert(1) hue-rotate(180deg) brightness(0.95) contrast(1.1) saturate(0.85) !important;
 }
 
@@ -547,19 +646,6 @@ kbd {
   line-height: 1.5;
   text-align: center;
   box-shadow: none;
-}
-
-.btn-accent {
-  background: var(--naviusm-accent);
-  color: var(--naviusm-on-accent);
-  border: none;
-  font-weight: 700;
-}
-
-.btn-accent:hover,
-.btn-accent:focus {
-  background: var(--naviusm-accent-hover);
-  color: var(--naviusm-on-accent);
 }
 
 /* Tablas con los colores del tema (reemplaza table-dark) */
@@ -886,6 +972,43 @@ kbd {
   color: var(--naviusm-blue) !important;
 }
 
+/* Atribución compacta (ui.js): colapsada queda como un botón (i) redondo en la esquina */
+.leaflet-control-attribution.nv-attrib {
+  cursor: default;
+  border-top-left-radius: 6px;
+}
+
+.leaflet-control-attribution.nv-attrib.is-collapsed {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  margin: 0 6px 6px 0;
+  border: 1px solid var(--naviusm-border);
+  border-radius: 50%;
+  font-size: 0;
+  line-height: 0;
+  overflow: hidden;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.leaflet-control-attribution.nv-attrib.is-collapsed > * {
+  display: none;
+}
+
+.leaflet-control-attribution.nv-attrib.is-collapsed::after {
+  content: "i";
+  font: 700 12px/1 Georgia, 'Times New Roman', serif;
+  color: var(--naviusm-text);
+}
+
+.leaflet-control-attribution.nv-attrib.is-collapsed:focus-visible {
+  outline: 2px solid var(--naviusm-accent);
+  outline-offset: 2px;
+}
+
 /* ===== Ayuda de atajos ===== */
 .help-grid {
   display: grid;
@@ -1178,4 +1301,915 @@ kbd {
 
 .cursor-hint[hidden] {
   display: none;
+}
+
+/* ===== Enlaces a Gestión de Edificios (panel y popup) ===== */
+.panel-link,
+.pop-link {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--naviusm-blue);
+  text-decoration: none;
+}
+
+.pop-link {
+  margin: 0 0 10px;
+}
+
+.panel-link:hover,
+.pop-link:hover {
+  text-decoration: underline;
+}
+
+.panel-link[hidden] {
+  display: none;
+}
+
+/* ===== Gestión de Edificios ===== */
+.bld-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.bld-toolbar .search-box {
+  width: 280px;
+  max-width: 100%;
+}
+
+.bld-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bld-item {
+  border: 1px solid var(--naviusm-border);
+  border-radius: var(--radius);
+  background: var(--naviusm-surface2);
+}
+
+.bld-item.deleted {
+  opacity: 0.6;
+}
+
+.bld-item.deleted .bld-name {
+  text-decoration: line-through;
+}
+
+.bld-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 10px;
+}
+
+.bld-toggle {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: none;
+  background: transparent;
+  color: var(--naviusm-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.bld-toggle:disabled {
+  cursor: default;
+}
+
+.bld-chevron {
+  transition: transform 0.15s;
+  color: var(--naviusm-muted);
+}
+
+.bld-item.open .bld-chevron {
+  transform: rotate(90deg);
+}
+
+.bld-name {
+  font-weight: 700;
+  color: var(--naviusm-text-strong);
+}
+
+.bld-meta {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--naviusm-muted);
+}
+
+.bld-body {
+  padding: 4px 14px 14px;
+  border-top: 1px solid var(--naviusm-border);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.bld-field {
+  max-width: 360px;
+  padding-top: 10px;
+}
+
+.floor-table {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  /* El diseño de la tabla depende del ancho de su contenedor (tarjeta o ventana), no de la pantalla */
+  container-type: inline-size;
+}
+
+.floor-row {
+  display: grid;
+  grid-template-columns: 90px minmax(140px, 1fr) 90px 150px 206px;
+  align-items: center;
+  gap: 10px;
+}
+
+.floor-header {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--naviusm-muted);
+}
+
+.floor-acceso {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--naviusm-accent);
+  cursor: pointer;
+}
+
+.floor-actions {
+  display: grid;
+  grid-template-columns: 120px 80px;
+  gap: 6px;
+}
+
+.floor-actions .btn {
+  width: 100%;
+}
+
+.bld-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-top: 8px;
+  border-top: 1px solid var(--naviusm-border);
+}
+
+.piso-map {
+  height: 420px;
+  width: 100%;
+  background: var(--naviusm-bg);
+}
+
+
+/* ===== Barra inferior fija de páginas con guardado (Gestión de Edificios) ===== */
+.page-footer {
+  position: sticky;
+  bottom: -48px;              /* compensa el padding inferior de .page para quedar pegada al borde */
+  margin: 24px -24px -48px;
+  padding: 0 24px;
+  background: var(--naviusm-surface);
+  border-top: 1px solid var(--naviusm-border);
+  box-shadow: 0 -4px 16px var(--naviusm-shadow);
+  z-index: 5;
+}
+
+.page-footer-inner {
+  max-width: 1100px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+/* Con barra inferior: el contenido ocupa el alto disponible y la barra queda abajo aunque haya poco contenido */
+.page.has-footer {
+  display: flex;
+  flex-direction: column;
+}
+
+.page.has-footer > .page-inner {
+  flex: 1 0 auto;
+  width: 100%;
+}
+
+/* Encabezado fijo arriba al hacer scroll (título y selector de sede siempre visibles) */
+.page-header-sticky {
+  position: sticky;
+  top: -32px;                 /* compensa el padding superior de .page: queda pegado arriba */
+  z-index: 5;
+  margin: -32px -24px 16px;
+  padding: 18px 24px 10px;
+  background: var(--naviusm-bg);
+}
+
+.page-header-sticky h3 {
+  font-size: 1.35rem;
+}
+
+.header-search {
+  width: 280px;
+  max-width: 100%;
+}
+
+/* ===== Editor: combinación de cambios ===== */
+.merge-panel {
+  border-color: var(--naviusm-accent);
+}
+
+.merge-bulk {
+  display: flex;
+  gap: 6px;
+}
+
+.merge-bulk[hidden] {
+  display: none;
+}
+
+.merge-item {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--naviusm-border);
+}
+
+.merge-item-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--naviusm-text-strong);
+}
+
+.merge-item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+/* ===== Editor de edificio: ubicación, pisos y conectores ===== */
+.crumbs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.crumbs a {
+  color: var(--naviusm-muted);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.crumbs a:hover {
+  color: var(--naviusm-text);
+}
+
+.crumb-sep {
+  color: var(--naviusm-muted);
+}
+
+.crumb-sede {
+  font-size: 11px;
+  color: var(--naviusm-muted);
+}
+
+.floor-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.floor-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--naviusm-text);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.floor-item:hover {
+  background: var(--naviusm-surface2);
+}
+
+.floor-item.active {
+  background: color-mix(in srgb, var(--naviusm-accent) 16%, transparent);
+  border-color: var(--naviusm-accent);
+  color: var(--naviusm-text-strong);
+  font-weight: 600;
+}
+
+.floor-tag {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--naviusm-accent);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.floor-count {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--naviusm-muted);
+}
+
+/* Nodos de contexto: más chicos y atenuados */
+.graph-node.is-context {
+  transform: scale(0.6);
+  opacity: 0.55;
+  box-shadow: none;
+}
+
+/* Parada de conector: cuadrado con la letra del tipo (E, A, R) */
+.graph-node.is-connector {
+  border-radius: 5px;
+  background: #0f766e !important;
+  border-color: #99f6e4 !important;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: inherit;
+}
+
+.legend-dot {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.legend-dot.legend-connector {
+  border-radius: 3px;
+  background: #0f766e;
+}
+
+.legend-dot.legend-context {
+  background: #2563eb;
+  opacity: 0.5;
+  transform: scale(0.8);
+}
+
+.leaflet-tooltip.ghost-label {
+  background: var(--naviusm-surface);
+  color: var(--naviusm-accent);
+  border: 1px solid var(--naviusm-accent);
+  font-size: 11px;
+  font-weight: 700;
+  box-shadow: none;
+}
+
+.connector-floors {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.pop-actions-wrap {
+  flex-wrap: wrap;
+}
+
+.review-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.review-row .review-item {
+  flex: 1;
+}
+
+.floor-add {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.floor-actions.no-ver {
+  grid-template-columns: 80px;
+}
+
+#floors-editor .floor-row {
+  grid-template-columns: 90px minmax(140px, 1fr) 90px 150px 80px;
+}
+
+/* ===== Barra superior: sin cortes de texto y compacta en anchos chicos ===== */
+.topbar .mmode,
+.topbar .btn,
+.crumbs,
+.crumbs a,
+.crumb-sede {
+  white-space: nowrap;
+}
+
+.topbar {
+  min-width: 0;
+}
+
+.crumbs .sede-select {
+  max-width: 220px;
+}
+
+@media (max-width: 1280px) {
+  .crumb-sede {
+    display: none;
+  }
+}
+
+/* En anchos chicos, las opciones de Crear y los modos quedan solo con su ícono (el nombre sigue en el título) */
+@media (max-width: 1180px) {
+  #create-options .mmode span {
+    display: none;
+  }
+}
+
+@media (max-width: 1020px) {
+  .mode-btns .mmode span {
+    display: none;
+  }
+}
+
+/* ===== Tabla de pisos adaptable: en anchos chicos cada piso ocupa dos líneas ===== */
+.floor-row {
+  grid-template-areas: "num name acceso puntos acciones";
+}
+
+.floor-row > :nth-child(1) { grid-area: num; }
+.floor-row > :nth-child(2) { grid-area: name; }
+.floor-row > :nth-child(3) { grid-area: acceso; }
+.floor-row > :nth-child(4) { grid-area: puntos; }
+.floor-row > :nth-child(5) { grid-area: acciones; }
+
+
+
+/* ===== Barra de navegación ===== */
+#main-navbar {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.user-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--naviusm-accent);
+  color: var(--naviusm-on-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.user-email {
+  font-size: 13px;
+}
+
+/* ===== Diálogos (uiAlert / uiConfirm) ===== */
+.ui-modal {
+  z-index: 10500;
+}
+
+.ui-modal-body {
+  font-size: 13px;
+  color: var(--naviusm-text);
+}
+
+/* ===== Páginas del panel: piezas comunes ===== */
+.page-lead {
+  font-size: 13px;
+  color: var(--naviusm-muted);
+}
+
+label.panel-label {
+  margin-bottom: 4px;
+}
+
+.card-title-strong {
+  color: var(--naviusm-text-strong);
+  font-weight: 600;
+}
+
+.nv-callout {
+  border-radius: var(--radius);
+  padding: 16px;
+  border: 1px solid var(--naviusm-border);
+  background: var(--naviusm-surface);
+}
+
+.nv-callout-ok {
+  background: var(--naviusm-green-dim);
+  border-color: var(--naviusm-green);
+}
+
+.nv-callout-title {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.nv-callout-ok .nv-callout-title {
+  color: var(--naviusm-green);
+}
+
+.nv-table-wrap {
+  border-radius: 6px;
+  border: 1px solid var(--naviusm-border);
+}
+
+.nv-table-wrap .table {
+  font-size: 13px;
+}
+
+.ak-nombre {
+  width: 280px;
+  max-width: 100%;
+}
+
+.pop-title {
+  margin-bottom: 10px;
+  font-weight: 700;
+  color: var(--naviusm-text-strong);
+}
+
+.main {
+  position: relative;
+}
+
+/* ===== Gestión de sedes: mapa de nueva sede ===== */
+.ns-map-wrap {
+  position: relative;
+}
+
+.ns-search {
+  position: absolute;
+  top: 10px;
+  left: 50px;
+  right: 10px;
+  z-index: 1000;
+}
+
+.ns-switch {
+  background: var(--naviusm-surface);
+  padding: 2px 10px 2px 2.6em;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.ns-results {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.ns-result {
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ns-result-title {
+  font-weight: 600;
+}
+
+.ns-map {
+  height: 380px;
+  width: 100%;
+  background: var(--naviusm-bg);
+}
+
+.ns-coords {
+  font-size: 12px;
+  color: var(--naviusm-muted);
+  font-weight: 700;
+  font-family: var(--naviusm-mono);
+}
+
+/* ===== Inicio de sesión y cambio de contraseña ===== */
+.auth-page {
+  align-items: center;
+  justify-content: center;
+  overflow-y: auto;
+  padding: 24px 16px;
+}
+
+.auth-box {
+  width: 100%;
+  max-width: 380px;
+  margin: auto;
+}
+
+.auth-brand {
+  text-align: center;
+  color: var(--naviusm-accent);
+  font-weight: 700;
+  font-size: 24px;
+  margin-bottom: 16px;
+}
+
+.auth-card {
+  padding: 28px;
+  box-shadow: 0 4px 16px var(--naviusm-shadow);
+}
+
+.auth-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--naviusm-text-strong);
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.auth-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--naviusm-muted);
+}
+
+.auth-page .btn {
+  --bs-btn-padding-y: 9px;
+  --bs-btn-font-size: 13px;
+}
+
+.auth-msg {
+  margin-top: 16px;
+  padding: 10px 12px;
+  border-radius: 7px;
+  font-size: 12px;
+  text-align: center;
+}
+
+.auth-msg-error {
+  background: var(--naviusm-red-dim);
+  color: var(--naviusm-red);
+  border: 1px solid color-mix(in srgb, var(--naviusm-red) 30%, transparent);
+}
+
+.auth-msg-ok {
+  background: var(--naviusm-green-dim);
+  color: var(--naviusm-green);
+  border: 1px solid color-mix(in srgb, var(--naviusm-green) 30%, transparent);
+}
+
+:root[data-theme="light"] .nv-badge-warn {
+  color: #9a5a00;
+}
+
+/* ===== Responsividad =====
+   Celular (< 576px) y tablet: sin scroll horizontal de la página. La barra de herramientas del editor se
+   desplaza horizontalmente dentro de sí misma cuando no cabe. */
+.floor-row > * {
+  min-width: 0;
+}
+
+.floor-row input.form-control {
+  width: 100%;
+}
+
+.floor-add {
+  flex-wrap: wrap;
+}
+
+#main-navbar {
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+@media (max-width: 767px) {
+  .navbar-custom {
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+    gap: 8px;
+  }
+
+  .navbar-custom .navbar-brand {
+    margin-right: 4px !important;
+  }
+
+  /* Los enlaces se desplazan dentro de la barra; el menú de usuario queda siempre visible */
+  #main-navbar {
+    flex: 1 1 auto;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  #main-navbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .navbar-custom .nav-link {
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+
+  .topbar {
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+  }
+
+  .topbar > * {
+    flex-shrink: 0;
+  }
+
+  .page {
+    padding: 20px 12px 48px;
+  }
+
+  .page-footer {
+    margin-left: -12px;
+    margin-right: -12px;
+    padding: 0 12px;
+  }
+
+  .nv-card {
+    padding: 14px;
+  }
+
+  .page-header h3 {
+    font-size: 22px;
+  }
+}
+
+@media (max-width: 575px) {
+  .navbar-brand sub {
+    display: none;
+  }
+
+  #footer-status {
+    display: none;
+  }
+
+  .page-footer-inner .btn {
+    flex: 1 1 0;
+  }
+
+  .header-search,
+  .header-search input {
+    width: 100%;
+  }
+
+  .map-panel {
+    width: min(230px, calc(100vw - 24px));
+  }
+}
+
+/* Tabla de pisos angosta: dos líneas por piso. Número y nombre arriba; acceso, puntos y acciones
+   del mismo piso abajo, para que queden asociados a ese piso. */
+@container (max-width: 680px) {
+  .floor-row,
+  #floors-editor .floor-row {
+    grid-template-columns: 72px minmax(0, 1fr) auto;
+    grid-template-areas:
+      "num name name"
+      "acceso puntos acciones";
+    row-gap: 6px;
+    padding: 8px 0 10px;
+    border-bottom: 1px solid var(--naviusm-border);
+  }
+
+  .floor-row.floor-header {
+    display: none;
+  }
+
+  .floor-actions {
+    grid-template-columns: auto auto;
+    justify-content: end;
+  }
+}
+
+@container (max-width: 380px) {
+  .floor-row,
+  #floors-editor .floor-row {
+    grid-template-columns: 64px minmax(0, 1fr);
+    grid-template-areas:
+      "num name"
+      "acceso puntos"
+      "acciones acciones";
+  }
+
+  .floor-actions {
+    justify-content: start;
+  }
+}
+
+/* Ventana de pisos: usa el ancho disponible (Bootstrap la deja en 500px bajo 992px) */
+#floorsModal .modal-dialog {
+  max-width: min(1140px, calc(100vw - 32px));
+}
+
+/* ===== Gestión de sedes: ventana de crear / editar ===== */
+#sedeModal .ns-map {
+  height: min(460px, 55vh);
+}
+
+#ns-map.is-drawing {
+  cursor: crosshair;
+}
+
+.ns-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 30px;
+  transform: translateX(-50%);
+  z-index: 1000;
+  max-width: calc(100% - 24px);
+  padding: 6px 12px;
+  border-radius: 7px;
+  font-size: 12px;
+  background: var(--naviusm-surface);
+  color: var(--naviusm-text);
+  border: 1px solid var(--naviusm-border);
+  box-shadow: 0 4px 16px var(--naviusm-shadow);
+  pointer-events: none;
+}
+
+.ns-hint[hidden],
+.ns-hint:empty {
+  display: none;
+}
+
+/* La ventana usa el ancho disponible (Bootstrap la deja en 500px bajo 992px) y el formulario se acomoda
+   según el ancho de la ventana, no el de la pantalla */
+#sedeModal .modal-dialog {
+  max-width: min(1000px, calc(100vw - 32px));
+}
+
+#sedeModal .modal-body {
+  container-type: inline-size;
+}
+
+.ns-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1.3fr);
+  gap: 16px 20px;
+  padding: 16px;
+  align-items: start;
+}
+
+.ns-form > * {
+  min-width: 0;
+}
+
+#ns-contour-meta {
+  display: block;
+  margin-top: 6px;
+}
+
+.ns-zoom {
+  width: 80px;
+}
+
+.ns-vertex {
+  background: var(--naviusm-surface);
+  border: 2px solid var(--naviusm-accent);
+  border-radius: 50%;
+  cursor: grab;
+}
+
+.ns-vertex.is-first {
+  background: var(--naviusm-accent);
+  cursor: pointer;
+}
+
+.ns-vertex.is-mid {
+  opacity: 0.6;
+}
+
+
+@container (max-width: 820px) {
+  .ns-form {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .ns-field-contour {
+    grid-column: 1 / -1;
+  }
+}
+
+@container (max-width: 480px) {
+  .ns-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
