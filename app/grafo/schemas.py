@@ -214,9 +214,17 @@ def nodos_fuera_del_area(payload: PublishPayloadIn, lat_sede: float, lng_sede: f
 
 # --- Respuesta del publish -------------------------------------------------
 #
-# La forma es la definitiva, no la que hace falta hoy. Con el Nivel 3 el publish
-# va a tener tres desenlaces y no dos: 422, publicado, y borrador no promovido.
-# Fijar el contrato ahora evita romper el editor una segunda vez.
+# Con el Nivel 3 antes de escribir (decision 0003, «publicar = promover»: el
+# borrador vive en el editor y el servidor solo recibe lo que se promueve) el
+# publish tiene estos desenlaces:
+#   422 {"detail", "errores"}   N2 (pydantic, area de la sede): dato malformado (app/main.py)
+#   422 {"detail"}              edificios invalidos (crud): dato malformado
+#   422 {"detail", "estado": "bloqueado", "validacion"}
+#                               N3: defecto de conectividad, no se escribe nada
+#   200 PublishResultOut        estado "publicado": sin defecto (puede traer advertencias de
+#                               accesibilidad, que nunca bloquean), o "publicado_forzado": con
+#                               defecto, forzado con el header X-Forzar-Publicacion (app/grafo/router.py)
+# Todos los 422 traen `detail` en texto, que es lo que el editor muestra.
 
 class ValidacionOut(BaseModel):
     nivel3_ejecutado: bool = False
@@ -228,7 +236,7 @@ class PublishResultOut(BaseModel):
     # cambiarle la respuesta a quien ya la consuma.
     message: str | None = None
     version: int
-    estado: str = "publicado"
+    estado: str = "publicado"  # publicado | publicado_forzado
     validacion: ValidacionOut = Field(default_factory=ValidacionOut)
     # Duración de cada etapa en milisegundos (publicacion, nivel3, total), medida en el router.
     # `total` va desde que entra la solicitud al handler: no incluye leer el cuerpo ni el Nivel 2,

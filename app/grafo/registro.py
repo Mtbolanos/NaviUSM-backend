@@ -1,7 +1,9 @@
 """Registro de ejecuciones del pipeline de publicacion (tabla ``publicacion``, migracion 0009).
 
 Una fila por cada POST /publish y PATCH /edificios que llega a resolverse a una sede: exito
-('publicado') o rechazo ('rechazado', con su status y motivo). Sirve para medir tiempos de
+('publicado', o 'publicado_forzado' con el motivo del admin si forzo un bloqueo del Nivel 3),
+bloqueo del Nivel 3 ('bloqueado_n3', 422, sin escribir) o rechazo ('rechazado', con su status y
+motivo). Sirve para medir tiempos de
 procesamiento y tasa de fallas sin depender de los snapshots, que la retencion borra.
 
 Dos reglas, y por eso esto vive aparte del router y de crud:
@@ -13,7 +15,7 @@ Dos reglas, y por eso esto vive aparte del router y de crud:
    que haber soltado esa transaccion antes de registrar. Por si no, ``lock_timeout`` corta la
    espera en vez de colgar la solicitud.
 2. Nunca tumba ni cambia la respuesta. Cualquier error al registrar se loguea y se ignora, igual
-   que ``validar_topologia``.
+   que ``revisar_topologia``.
 """
 import logging
 from uuid import UUID

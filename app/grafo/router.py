@@ -1,5 +1,6 @@
 import logging
 import time
+from urllib.parse import unquote
 from uuid import UUID
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
@@ -24,7 +25,7 @@ from app.grafo.schemas import (
 )
 from app.models import Publicacion, Sede, Usuario
 from app.security import get_current_user
-from app.validacion.topologia import validar_topologia
+from app.validacion.topologia import RevisionNivel3, revisar_topologia
 
 from app.templating import templates
 
@@ -39,6 +40,35 @@ def _ms(desde: float) -> float:
 VERSION_HEADER = "X-Snapshot-Version"
 CONFLICT_MSG = "El mapa se publicó desde otra página o pestaña después de que lo abriste"
 PUBLISH_MSG = "Grafo publicado sin pérdida de integridad"
+PUBLISH_ADV_MSG = "Grafo publicado: conectividad íntegra, con advertencias que no bloquean"
+PUBLISH_ADV_NO_EVALUABLE_MSG = "Grafo publicado con advertencias que no bloquean"
+PUBLISH_SIN_N3_MSG = "Grafo publicado sin validación topológica: el Nivel 3 falló"
+FORZADO_MSG = "Grafo publicado forzado, con defectos de conectividad: ver advertencias"
+
+# Override del bloqueo del Nivel 3 (decision 0003): el motivo del admin viaja en este header y no
+# en el cuerpo, porque el cuerpo es el artefacto que se publica y validar no puede alterarlo.
+# Los headers HTTP son latin-1: el cliente manda el motivo percent-encoded (encodeURIComponent) y
+# aca se decodifica con urllib.parse.unquote; un valor ASCII sin escapes pasa igual. Vacio o solo
+# espacios cuenta como ausente.
+FORZAR_HEADER = "X-Forzar-Publicacion"
+FORZAR_DESC = ("Motivo para publicar aunque el Nivel 3 encuentre defectos de conectividad; "
+               "percent-encoded (UTF-8). Vacio = sin override")
+
+
+def _motivo_forzado(valor: str | None) -> str | None:
+    if valor is None:
+        return None
+    return unquote(valor).strip() or None
+
+
+def _mensaje(revision: RevisionNivel3, forzado: bool) -> str:
+    if forzado:
+        return FORZADO_MSG
+    if revision.reporte is None:
+        return PUBLISH_SIN_N3_MSG
+    if not revision.validacion.advertencias:
+        return PUBLISH_MSG
+    return PUBLISH_ADV_MSG if revision.reporte.conectividad_integra else PUBLISH_ADV_NO_EVALUABLE_MSG
 
 
 def _get_sede(db: Session, sede_id: UUID, user: Usuario) -> Sede:
@@ -80,25 +110,52 @@ def _rechazo(ctx: dict, status_http: int, motivo, inicio: float, payload=None) -
 
 def _publish(
     db: Session, sede: Sede, payload: dict, org_id, base_version: int | None,
-    inicio: float, tiempos: dict[str, float] | None = None, *, ctx: dict,
+    inicio: float, tiempos: dict[str, float] | None = None, *, ctx: dict, forzar: str | None = None,
 ) -> JSONResponse:
-    """Publica y responde con el contrato comun del POST /publish y del PATCH /edificios.
+    """Valida el Nivel 3, publica y responde con el contrato comun del POST /publish y del PATCH /edificios.
 
-    Nivel 3, modo informativo: corre despues del commit, sobre el mismo payload que se guardo,
-    y solo reporta; validar_topologia no lanza, asi que no puede tumbar una publicacion hecha.
-    DECISION PENDIENTE (integracion 1.3.1): la respuesta es la de origin/main
-    ({"message", "version"} + X-Snapshot-Version) con `estado` y `validacion` agregados encima;
-    el editor solo lee `version`.
+    Nivel 3 antes de escribir (decision 0003, «publicar = promover»): revisar_topologia corre sobre
+    el payload que se va a guardar, antes de publish_graph_data. Tres desenlaces:
 
-    Observabilidad: cada etapa se cronometra y va en `tiempos_ms` y en el log. `publicacion` es
-    publish_graph_data completo (normalizacion y validaciones de edificios, escritura, snapshot,
-    retencion y commit).
+    - defecto de conectividad y sin override: no se escribe nada; 422
+      {"detail", "estado": "bloqueado", "validacion"} y fila 'bloqueado_n3'.
+    - defecto y override (`forzar`, el motivo del header X-Forzar-Publicacion): se publica;
+      200 con estado 'publicado_forzado' y fila 'publicado_forzado' con el motivo del admin.
+    - sin defecto: se publica; 200 'publicado'. Un override sin defecto se ignora.
 
-    Registro (app/grafo/registro.py): exito o rechazo dejan una fila en `publicacion`, escrita en
-    una sesion propia y despues de que la de la solicitud solto su transaccion (FOR UPDATE de la
-    sede). No toca la respuesta: el registro no lanza.
+    La accesibilidad (sin escaleras) nunca bloquea: va en las advertencias. Si el validador falla,
+    se publica con nivel3_ejecutado=false (ver revisar_topologia).
+    La respuesta 200 es la de origin/main ({"message", "version"} + X-Snapshot-Version) con
+    `estado`, `validacion` y `tiempos_ms` agregados; el editor solo lee `version`.
+
+    Observabilidad: cada etapa se cronometra y va en `tiempos_ms` y en el log. `nivel3` es
+    revisar_topologia; `publicacion` es publish_graph_data completo (normalizacion y validaciones
+    de edificios, escritura, snapshot, retencion y commit).
+
+    Registro (app/grafo/registro.py): exito, bloqueo o rechazo dejan una fila en `publicacion`,
+    escrita en una sesion propia y despues de que la de la solicitud solto su transaccion (FOR
+    UPDATE de la sede). No toca la respuesta: el registro no lanza.
     """
     tiempos = dict(tiempos or {})
+    t = time.perf_counter()
+    revision = revisar_topologia(payload)
+    tiempos["nivel3"] = _ms(t)
+    validacion = revision.validacion.model_dump()
+    forzado = revision.bloquea and forzar is not None
+
+    if revision.bloquea and not forzado:
+        # Nada se escribio todavia; el rollback solo suelta la transaccion de lectura de la sesion
+        # antes de registrar desde otra conexion.
+        db.rollback()
+        motivo = revision.reporte.motivo_bloqueo()
+        tiempos["total"] = _ms(inicio)
+        logger.info("publicacion bloqueada por N3 sede=%s motivo=%s tiempos_ms=%s", sede.id, motivo, tiempos)
+        registro.registrar(
+            **ctx, resultado="bloqueado_n3", status_http=422, motivo=motivo,
+            tiempos_ms=tiempos, validacion=validacion, conteos=registro.conteos(payload),
+        )
+        return JSONResponse({"detail": motivo, "estado": "bloqueado", "validacion": validacion}, status_code=422)
+
     t = time.perf_counter()
     try:
         version = _publish_version(db, sede, payload, org_id, base_version)
@@ -117,18 +174,19 @@ def _publish(
         _rechazo(ctx, 500, f"{type(exc).__name__}: {exc}", inicio, payload)
         raise
     tiempos["publicacion"] = _ms(t)
-    t = time.perf_counter()
-    validacion = validar_topologia(payload)
-    tiempos["nivel3"] = _ms(t)
     tiempos["total"] = _ms(inicio)
+    estado = "publicado_forzado" if forzado else "publicado"
     logger.info(
-        "publicacion sede=%s version=%d nodos=%d aristas=%d tiempos_ms=%s",
-        sede.id, version, len(payload.get("nodes", [])), len(payload.get("edges", [])), tiempos,
+        "publicacion sede=%s version=%d estado=%s nodos=%d aristas=%d tiempos_ms=%s",
+        sede.id, version, estado, len(payload.get("nodes", [])), len(payload.get("edges", [])), tiempos,
     )
-    resultado = PublishResultOut(message=PUBLISH_MSG, version=version, validacion=validacion, tiempos_ms=tiempos)
+    resultado = PublishResultOut(
+        message=_mensaje(revision, forzado), version=version, estado=estado,
+        validacion=revision.validacion, tiempos_ms=tiempos,
+    )
     cuerpo = resultado.model_dump()
     registro.registrar(
-        **ctx, resultado="publicado", status_http=200, version=version,
+        **ctx, resultado=estado, status_http=200, version=version, motivo=forzar if forzado else None,
         tiempos_ms=cuerpo["tiempos_ms"], validacion=cuerpo["validacion"], conteos=registro.conteos(payload),
     )
     return JSONResponse(cuerpo, headers={VERSION_HEADER: str(version)})
@@ -140,6 +198,7 @@ def publish_graph(
     sede_id: UUID,
     payload: PublishPayloadIn,
     x_base_version: int | None = Header(None, description="Versión cargada por el editor; si ya no es la última, 409"),
+    x_forzar_publicacion: str | None = Header(None, alias=FORZAR_HEADER, description=FORZAR_DESC),
     db: Session = Depends(get_db),
     user: Usuario = Depends(get_current_user),
 ):
@@ -162,17 +221,23 @@ def publish_graph(
     # exclude_unset preserva el payload tal como lo mando el editor: validar no
     # puede alterar el artefacto que se publica.
     publicado = payload.model_dump(by_alias=True, exclude_unset=True)
-    return _publish(db, sede, publicado, user.organizacion_id, x_base_version, inicio, ctx=ctx)
+    return _publish(
+        db, sede, publicado, user.organizacion_id, x_base_version, inicio,
+        ctx=ctx, forzar=_motivo_forzado(x_forzar_publicacion),
+    )
 
 
 # Cambios de Gestión de Edificios: se aplican sobre la última versión publicada y crean una nueva.
 # Sin Nivel 2: el payload no viene del cliente, lo arma el servidor desde el snapshot. El Nivel 3
-# informativo si corre (en _publish), con la misma respuesta que el POST /publish.
+# si corre antes de escribir (en _publish), con el mismo bloqueo, override y respuesta que el
+# POST /publish: un cambio de edificios que deja POIs sin ruta (p. ej. borrar un piso con sus
+# nodos) no se publica, y un grafo publicado que ya tenia defectos solo se edita forzando.
 @router.patch("/admin/api/sedes/{sede_id}/edificios", response_model=PublishResultOut)
 def patch_edificios(
     request: Request,
     sede_id: UUID,
     cambios: EdificiosPatch,
+    x_forzar_publicacion: str | None = Header(None, alias=FORZAR_HEADER, description=FORZAR_DESC),
     db: Session = Depends(get_db),
     user: Usuario = Depends(get_current_user),
 ):
@@ -195,7 +260,10 @@ def patch_edificios(
     except PayloadValidationError as exc:
         _rechazo(ctx, 422, str(exc), inicio, snapshot.payload)
         raise HTTPException(422, str(exc))
-    return _publish(db, sede, payload, user.organizacion_id, cambios.base_version, inicio, ctx=ctx)
+    return _publish(
+        db, sede, payload, user.organizacion_id, cambios.base_version, inicio,
+        ctx=ctx, forzar=_motivo_forzado(x_forzar_publicacion),
+    )
 
 
 # Snapshot para el editor del panel: sesión de admin y solo sedes de su organización

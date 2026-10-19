@@ -74,7 +74,7 @@ class Publicacion(Base):
     publicado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     usuario_id = Column(UUID(as_uuid=True), ForeignKey("usuario.id", ondelete="SET NULL"))
     origen = Column(Text, nullable=False)  # publish | patch_edificios
-    resultado = Column(Text, nullable=False)  # publicado | rechazado (sin CHECK: puede crecer)
+    resultado = Column(Text, nullable=False)  # publicado | publicado_forzado | bloqueado_n3 | rechazado (sin CHECK)
     status_http = Column(Integer, nullable=False)
     motivo = Column(Text)
     tiempos_ms = Column(JSONB)

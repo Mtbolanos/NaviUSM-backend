@@ -4,9 +4,18 @@ Los Niveles 1 y 2 miran filas: que cada nodo y cada arista esten bien formados.
 Este nivel mira el grafo completo, que es lo unico que detecta un campus partido
 en dos aunque cada fila sea valida.
 
-Hoy corre en modo informativo: no rechaza ni retiene nada, solo calcula metricas
-y las devuelve. Es una funcion pura sobre el payload (dict) y no lo modifica,
-asi que no puede alterar el artefacto que se publica.
+Corre ANTES de escribir (decision 0003, opcion B «publicar = promover»): el
+router lo llama antes de publish_graph_data y, si hay un defecto de conectividad,
+no publica (422 `bloqueado`) salvo que el admin fuerce con un motivo. La
+accesibilidad no bloquea nunca: es un hallazgo sobre el campus, no un defecto del
+dato, y se informa como advertencia. Es una funcion pura sobre el payload (dict)
+y no lo modifica, asi que no puede alterar el artefacto que se publica.
+
+Que bloquea (`ReporteTopologia.bloquea_publicacion`): mas de una componente, algun
+nodo aislado o pares de POIs sin ruta. Si el grafo tiene menos de 2 POIs no hay
+alcanzabilidad que medir (alcanzabilidad_pct es None) y no se bloquea: se informa
+lo que haya como advertencia. Tampoco se bloquea si el validador falla: se publica
+con nivel3_ejecutado=false (ver `revisar_topologia`).
 
 Convenciones que hay que declarar:
 
@@ -108,6 +117,34 @@ class ReporteTopologia:
     def alcanzabilidad_accesible_pct(self) -> float | None:
         return _porcentaje(self.pares_con_ruta_accesible, self.pares_poi)
 
+    @property
+    def conectividad_integra(self) -> bool:
+        return self.componentes <= 1 and not self.nodos_aislados and self.pares_con_ruta == self.pares_poi
+
+    @property
+    def bloquea_publicacion(self) -> bool:
+        """Defecto de conectividad que impide promover (decision 0003).
+
+        Con menos de 2 POIs (pares_poi == 0) no hay alcanzabilidad que evaluar y no se bloquea:
+        lo conservador es no frenar lo que el criterio no puede medir. Las escaleras no cuentan.
+        """
+        return self.pares_poi > 0 and not self.conectividad_integra
+
+    def motivo_bloqueo(self) -> str:
+        """Resumen legible del bloqueo, para el `detail` del 422. Sin punto final: el editor lo
+        agrega (static/js/admin.js:3611)."""
+        partes = []
+        if self.componentes > 1:
+            partes.append(f"el grafo está partido en {self.componentes} componentes")
+        if self.nodos_aislados:
+            rotulados = [self.rotulos.get(i, i) for i in self.nodos_aislados]
+            n = len(rotulados)
+            partes.append(f"{n} {'nodo' if n == 1 else 'nodos'} sin aristas: {_nombrar(rotulados)}")
+        sin_ruta = self.pares_poi - self.pares_con_ruta
+        if sin_ruta:
+            partes.append(f"{sin_ruta} de {self.pares_poi} pares de POIs sin ruta entre sí")
+        return "Publicación bloqueada por integridad topológica: " + "; ".join(partes)
+
     def advertencias(self) -> list[str]:
         """Los hallazgos en lenguaje del editor. Vacio si el grafo esta sano."""
         avisos = []
@@ -188,14 +225,28 @@ def evaluar_topologia(payload: dict[str, Any]) -> ReporteTopologia:
     )
 
 
-def validar_topologia(payload: dict[str, Any]) -> ValidacionOut:
-    """Punto de entrada del publish: el reporte en la forma de la respuesta.
+@dataclass
+class RevisionNivel3:
+    """Lo que el publish necesita del Nivel 3: el bloque `validacion` de la respuesta y, si el
+    validador corrio, el reporte (para decidir el bloqueo y armar el motivo)."""
+    validacion: ValidacionOut
+    reporte: ReporteTopologia | None = None
 
-    Va despues de publicar y no puede fallar hacia afuera: en modo informativo
-    un error del validador nunca debe tumbar una publicacion que ya se guardo.
+    @property
+    def bloquea(self) -> bool:
+        return self.reporte is not None and self.reporte.bloquea_publicacion
+
+
+def revisar_topologia(payload: dict[str, Any]) -> RevisionNivel3:
+    """Punto de entrada del publish, antes de escribir. No lanza.
+
+    Si el validador falla, se publica igual con nivel3_ejecutado=false (falla abierta): un error
+    del validador no es evidencia de un defecto del grafo, y bloquear por eso dejaria sin poder
+    publicar por un bug propio. Queda en el log y en la fila de `publicacion`.
     """
     try:
-        return ValidacionOut(nivel3_ejecutado=True, advertencias=evaluar_topologia(payload).advertencias())
+        reporte = evaluar_topologia(payload)
+        return RevisionNivel3(ValidacionOut(nivel3_ejecutado=True, advertencias=reporte.advertencias()), reporte)
     except Exception:
         logger.exception("el validador topologico fallo; se publica sin reporte")
-        return ValidacionOut(nivel3_ejecutado=False)
+        return RevisionNivel3(ValidacionOut(nivel3_ejecutado=False))
