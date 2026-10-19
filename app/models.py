@@ -57,6 +57,9 @@ class Snapshot(Base):
     payload = Column(JSONB, nullable=False)
     version = Column(Integer, nullable=False, default=1)
     published_at = Column(DateTime(timezone=True), server_default=func.now())
+    # Diferencia con la version anterior; la llena el trigger snapshot_cambios (migracion 0010)
+    cambios = Column(JSONB)
+    restaurada_de = Column(Integer)
 
     sede = relationship("Sede", back_populates="snapshots")
     organizacion = relationship("Organizacion", back_populates="snapshots")
