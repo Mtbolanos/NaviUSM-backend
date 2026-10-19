@@ -1,5 +1,6 @@
 from uuid import UUID
 from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
@@ -78,18 +79,16 @@ def publish_graph(
     sede = _get_sede(db, sede_id, user)
 
     # El area de la sede no se puede validar en el modelo: depende de la sede,
-    # que recien se conoce aca. Se levanta con la misma forma que los errores de
-    # pydantic para que el editor tenga un solo formato que leer.
+    # que recien se conoce aca. Se levanta como error de validacion para que pase
+    # por el mismo handler que los de pydantic (app/main.py) y el editor tenga un
+    # solo formato que leer.
     fuera = nodos_fuera_del_area(payload, float(sede.latitud), float(sede.longitud))
     if fuera:
-        raise HTTPException(
-            422,
-            detail=[{
-                "loc": ["body", "nodes"],
-                "msg": f"nodos fuera del area de la sede (revisa si lat/lng vienen invertidos): {', '.join(fuera)}",
-                "type": "value_error.fuera_de_area",
-            }],
-        )
+        raise RequestValidationError([{
+            "loc": ("body", "nodes"),
+            "msg": f"nodos fuera del area de la sede (revisa si lat/lng vienen invertidos): {', '.join(fuera)}",
+            "type": "value_error.fuera_de_area",
+        }])
 
     # exclude_unset preserva el payload tal como lo mando el editor: validar no
     # puede alterar el artefacto que se publica.

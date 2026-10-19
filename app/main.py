@@ -4,7 +4,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import RedirectResponse, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.exception_handlers import http_exception_handler
+from fastapi.exception_handlers import http_exception_handler, request_validation_exception_handler
 
 from app.api_keys.router import router as api_keys_router
 from app.auth.router import router as auth_router
@@ -42,20 +42,59 @@ class ForwardedPrefixMiddleware:
 app.add_middleware(ForwardedPrefixMiddleware)
 
 
+# Rutas cuyo 422 se resume para el editor. Se compara contra la plantilla de la ruta, no contra
+# la URL, para no depender del root_path ni del uuid.
+_RUTAS_PUBLICACION = {"/admin/api/sedes/{sede_id}/publish"}
+# Cuantos errores se nombran en `detail` antes de resumir; la lista completa va en `errores`.
+_MAX_ERRORES_EN_DETAIL = 10
+
+
+def _ubicacion(loc) -> str:
+    """("body", "nodes", 3, "lat") -> "nodes[3].lat". El "body" inicial no le dice nada al editor."""
+    partes = list(loc)
+    if partes and partes[0] == "body":
+        partes = partes[1:]
+    texto = ""
+    for p in partes:
+        texto += f"[{p}]" if isinstance(p, int) else (f".{p}" if texto else str(p))
+    return texto
+
+
+def _resumen(errores: list[dict]) -> str:
+    frases = []
+    for e in errores[:_MAX_ERRORES_EN_DETAIL]:
+        # pydantic antepone "Value error, " a los ValueError de los validadores propios
+        msg = str(e["msg"]).removeprefix("Value error, ")
+        donde = _ubicacion(e["loc"])
+        frases.append(f"{donde}: {msg}" if donde else msg)
+    resto = len(errores) - _MAX_ERRORES_EN_DETAIL
+    if resto > 0:
+        frases.append(f"y {resto} error(es) mas")
+    return "; ".join(frases)
+
+
 @app.exception_handler(RequestValidationError)
 async def validation_error_handler(request: Request, exc: RequestValidationError):
-    """422 sin el eco del payload.
+    """422 de la publicacion del grafo: resumido y sin el eco del payload.
 
     Las reglas que miran el payload completo (las de PublishPayloadIn) fallan a
     nivel del modelo, y pydantic adjunta en `input` el objeto que valido: el
     grafo entero. Un error de una linea devolvia 22 KB sobre un payload de 21,8
-    KB, y crece con el campus. El editor solo necesita donde y por que.
+    KB, y crece con el campus. El editor solo necesita donde y por que, y lo
+    muestra como texto (`${detail}` en static/js/admin.js), asi que `detail` es
+    un string en espanol y la lista compacta (loc, msg, type) va en `errores`.
+
+    El resto de las rutas (app movil, api-keys, ...) conserva el 422 por defecto
+    de FastAPI.
     """
-    detalle = [
-        {"loc": e.get("loc", []), "msg": e.get("msg", ""), "type": e.get("type", "")}
+    ruta = request.scope.get("route")
+    if getattr(ruta, "path", None) not in _RUTAS_PUBLICACION:
+        return await request_validation_exception_handler(request, exc)
+    errores = [
+        {"loc": list(e.get("loc", [])), "msg": e.get("msg", ""), "type": e.get("type", "")}
         for e in exc.errors()
     ]
-    return JSONResponse(status_code=422, content={"detail": detalle})
+    return JSONResponse(status_code=422, content={"detail": _resumen(errores), "errores": errores})
 
 
 @app.middleware("http")
