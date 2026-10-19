@@ -44,7 +44,78 @@
   window.NV = {
     site: () => readJson('site-config'),
     page: () => readJson('page-config'),
+    baseLayer,
   };
+
+  // ----- Mapa base -----
+  // Con mapTiles.style_url (mosaicos vectoriales, p. ej. OpenFreeMap) el mapa se dibuja en el navegador con
+  // MapLibre GL: nítido a cualquier zoom. Si no hay style_url, o MapLibre no carga (sin WebGL, CDN caído),
+  // se usan los mosaicos raster de mapTiles.url.
+  const MAPLIBRE_VERSION = '6.15.0';
+  const ADAPTER_VERSION = '0.1.4';
+  const DEFAULT_TILES = {
+    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors',
+    max_zoom: 19,
+    style_url: null,
+    style_attribution: null,
+  };
+  let maplibrePromise = null;
+
+  function loadScript(src) {
+    return new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = src;
+      s.onload = resolve;
+      s.onerror = () => reject(new Error(`No se pudo cargar ${src}`));
+      document.head.appendChild(s);
+    });
+  }
+
+  function loadMaplibre() {
+    if (!maplibrePromise) {
+      maplibrePromise = (async () => {
+        if (!document.createElement('canvas').getContext('webgl2')) throw new Error('WebGL2 no disponible');
+        const css = document.createElement('link');
+        css.rel = 'stylesheet';
+        css.href = `https://cdn.jsdelivr.net/npm/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.css`;
+        document.head.appendChild(css);
+        // MapLibre 6 se distribuye solo como módulo ES; el adaptador para Leaflet (UMD) lo toma de window.maplibregl
+        window.maplibregl = await import(`https://cdn.jsdelivr.net/npm/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.mjs`);
+        await loadScript(`https://cdn.jsdelivr.net/npm/@maplibre/maplibre-gl-leaflet@${ADAPTER_VERSION}/dist/leaflet-maplibre-gl.js`);
+        if (!L.maplibreGL) throw new Error('Adaptador de MapLibre no disponible');
+      })();
+    }
+    return maplibrePromise;
+  }
+
+  // Agrega el mapa base a un mapa Leaflet. maxZoom: zoom máximo del mapa (el raster se amplía sobre max_zoom)
+  function baseLayer(map, { maxZoom = 22 } = {}) {
+    const t = { ...DEFAULT_TILES, ...(readJson('site-config').mapTiles || {}) };
+    const addRaster = () => L.tileLayer(t.url, { maxZoom, maxNativeZoom: t.max_zoom, attribution: t.attribution }).addTo(map);
+    if (!t.style_url) return addRaster();
+    let fellBack = false;
+    const fallback = (err, layer) => {
+      if (fellBack) return;
+      fellBack = true;
+      console.warn('Mapa vectorial no disponible; se usa el mapa raster.', err);
+      if (layer && map.hasLayer(layer)) map.removeLayer(layer);
+      addRaster();
+    };
+    loadMaplibre().then(() => {
+      const layer = L.maplibreGL({
+        style: t.style_url,
+        attributionControl: { customAttribution: t.style_attribution || '' },
+      });
+      layer.addTo(map);
+      const gl = layer.getMaplibreMap();
+      let loaded = false;
+      gl.once('load', () => { loaded = true; });
+      // Si el estilo no carga (servidor caído, URL inválida), se vuelve al raster
+      gl.on('error', (e) => { if (!loaded) fallback(e && e.error, layer); });
+    }).catch((err) => fallback(err));
+    return null;
+  }
 
   // ----- Diálogos -----
   // Título y mensaje pueden incluir nombres ingresados por usuarios: se escapan antes de insertarlos como HTML

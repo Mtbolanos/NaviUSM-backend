@@ -20,12 +20,6 @@ const SCOPE = NV.page().scope === 'building' ? 'building' : 'campus';
 const IS_BUILDING = SCOPE === 'building';
 const CONNECTOR_TYPES = { escalera: 'Escalera', ascensor: 'Ascensor', rampa: 'Rampa' };
 const CONNECTOR_LETTER = { escalera: 'E', ascensor: 'A', rampa: 'R' };
-// Mapa base configurable desde el servidor (MAP_TILE_URL); por defecto, OpenStreetMap
-const MAP_TILES = NV.site().mapTiles || {
-  url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors',
-  max_zoom: 19,
-};
 
 // Íconos de datos: se guardan en el snapshot y los usa la app móvil
 const SYSTEM_TYPES = {
@@ -399,14 +393,11 @@ function restoreBaseStatus() {
 window.addEventListener('load', () => {
   // Renderizador Canvas: permite 'tolerance', que agrega margen de clic alrededor de líneas y polígonos
   // En el editor de edificio, maxBoundsViscosity 1: el borde del área es firme (no se arrastra afuera)
-  // El zoom llega a 22 aunque los mosaicos lleguen a max_zoom: más allá se amplía el último nivel (se pixela)
+  // Zoom hasta 22: el mapa vectorial se ve nítido; el raster (respaldo) amplía su último nivel
   const maxZoom = 22;
   map = L.map('map', { zoomControl: false, maxZoom, maxBoundsViscosity: IS_BUILDING ? 1.0 : 0, renderer: L.canvas({ tolerance: 8 }) });
   L.control.zoom({ position: 'bottomright' }).addTo(map);
-  // Más allá de max_zoom no se piden mosaicos: Leaflet amplía los del último nivel disponible
-  L.tileLayer(MAP_TILES.url, {
-    maxZoom, maxNativeZoom: MAP_TILES.max_zoom, attribution: MAP_TILES.attribution
-  }).addTo(map);
+  NV.baseLayer(map, { maxZoom });
 
   map.on('click', onMapClick);
   map.on('mousemove', onMapMouseMove);
@@ -437,9 +428,46 @@ window.addEventListener('load', () => {
 
 function centrarMapaEnSede() {
   if (IS_BUILDING && currentBuildingNode()) { applyBuildingLock(); return; }
+  const info = currentSedeInfo();
+  if (!info) return;
+  if (!IS_BUILDING) { applyCampusLock(info); return; }
+  map.setView([info.lat, info.lng], info.zoom);
+}
+
+function currentSedeInfo() {
   const sedeId = document.getElementById('sede-selector')?.value;
-  const info = SEDES_INFO.find(s => s.id === sedeId);
-  if (info) map.setView([info.lat, info.lng], info.zoom);
+  return SEDES_INFO.find(s => s.id === sedeId) || null;
+}
+
+// Contorno de la sede (opcional, se define en Gestión de Sedes): [[lng, lat], ...] o null
+function sedeRing() {
+  return currentSedeInfo()?.contorno || null;
+}
+
+// Campus con contorno: el mapa queda limitado a esa área (con margen) y se dibuja el borde.
+// Sin contorno, el mapa es libre como antes.
+let sedeOutline = null;
+function applyCampusLock(info) {
+  const ring = info.contorno;
+  if (sedeOutline) { sedeOutline.remove(); sedeOutline = null; }
+  map.setMaxBounds(null);
+  map.setMinZoom(0);
+  map.options.maxBoundsViscosity = 0;
+  map.setView([info.lat, info.lng], info.zoom, { animate: false });
+  if (!ring) return;
+  const latlngs = ring.map(([lng, lat]) => [lat, lng]);
+  sedeOutline = L.polygon(latlngs, {
+    color: themeVar('--naviusm-accent'), weight: 2, dashArray: '8,6', fill: false, interactive: false,
+  }).addTo(map);
+  const bounds = sedeOutline.getBounds();
+  const fitZoom = map.getBoundsZoom(bounds, false, L.point(60, 60));
+  map.setMinZoom(Math.max(fitZoom - 1, 0));
+  map.options.maxBoundsViscosity = 1.0;
+  map.setMaxBounds(bounds.pad(0.25));
+}
+
+function outsideScopeMsg() {
+  return IS_BUILDING ? 'Fuera del edificio' : 'Fuera del contorno de la sede';
 }
 
 // =============================================================================
@@ -782,7 +810,7 @@ function createNodeObject(raw) {
     // En el editor de edificio, un nodo no puede quedar fuera del contorno
     if (!insideScope(marker.getLatLng())) {
       marker.setLatLng(node.dragFrom);
-      showMapHint(node.dragFrom, 'Fuera del edificio');
+      showMapHint(node.dragFrom, outsideScopeMsg());
       undoStack.pop();
       updateHistoryButtons();
     }
@@ -1002,7 +1030,7 @@ function onMapClick(e) {
   if (draw) { addDrawVertex(e.latlng); return; }
   if (mode !== 'create') { clearSelection(); return; }
   if (IS_BUILDING && !currentBuilding) return;
-  if (!insideScope(e.latlng) && !edgeFrom) { showMapHint(e.latlng, 'Fuera del edificio'); return; }
+  if (!insideScope(e.latlng) && !edgeFrom) { showMapHint(e.latlng, outsideScopeMsg()); return; }
   if (waypointMode) { routeClickAt(e.latlng); return; }
   if (edgeFrom) { cancelEdge(); return; }
   if (e.originalEvent?.shiftKey && lastCreated) { repeatLast(e.latlng); return; }
@@ -1277,7 +1305,7 @@ function endRoute() {
 }
 
 function routeClickAt(latlng) {
-  if (!insideScope(latlng)) { showMapHint(latlng, 'Fuera del edificio'); return; }
+  if (!insideScope(latlng)) { showMapHint(latlng, outsideScopeMsg()); return; }
   const existing = nodeAtPoint(latlng);
   if (existing) { routeToNode(existing.id); return; }
   const from = routeAnchor();
@@ -1864,9 +1892,14 @@ function insideBuilding(latlng, bid) {
   return ring ? pointInRing(latlng, ring) : true; // sin contorno no se puede validar: se permite
 }
 
-// En el editor de edificio no se crea ni se deja nada fuera de su contorno
+// En el editor de edificio no se crea ni se deja nada fuera de su contorno; en el campus, fuera del
+// contorno de la sede (si la sede tiene uno)
 function insideScope(latlng) {
-  return !IS_BUILDING || !currentBuilding || insideBuilding(latlng, currentBuilding);
+  if (!IS_BUILDING) {
+    const ring = sedeRing();
+    return !ring || pointInRing(latlng, ring);
+  }
+  return !currentBuilding || insideBuilding(latlng, currentBuilding);
 }
 
 function currentBuildingNode() {
@@ -2503,7 +2536,7 @@ function stopPoint(latlng, node) {
 
 function placeConnectorStop(latlng, node = null) {
   const pl = placement;
-  if (!insideScope(latlng)) { showMapHint(latlng, 'Fuera del edificio'); return; }
+  if (!insideScope(latlng)) { showMapHint(latlng, outsideScopeMsg()); return; }
   if (isFlightType(pl.tipo)) {
     // clic en la llegada pendiente del tramo anterior (aún sin nodo): la escalera sigue recta desde ahí
     const prev = pl.flights[pl.k - 1];

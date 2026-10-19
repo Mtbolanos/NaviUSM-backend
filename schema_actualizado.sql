@@ -823,3 +823,8 @@ ALTER TABLE public.conector ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.nodo ADD COLUMN IF NOT EXISTS conector_id uuid REFERENCES public.conector(id) ON DELETE SET NULL;
 
 CREATE INDEX IF NOT EXISTS idx_nodo_conector ON public.nodo USING btree (conector_id);
+
+-- 005: contorno opcional de la sede (NULL = sin límite)
+-- En bases existentes aplicar migraciones/005_sede_contorno.sql (este bloque es el mismo contenido)
+
+ALTER TABLE public.sede ADD COLUMN IF NOT EXISTS contorno public.geometry(Polygon, 4326);
