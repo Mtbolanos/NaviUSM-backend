@@ -2,7 +2,9 @@
 // Editor de mapa (NaviUSM Studio)
 // Modos: Ver (consultar), Crear (menú contextual en el punto del clic) y Modificar
 // (seleccionar, mover y editar). Todo cambio pasa por commit(), que guarda el
-// estado anterior para deshacer/rehacer.
+// estado anterior para deshacer/rehacer. Además: trazado continuo de rutas,
+// división de conexiones, búsqueda, revisión antes de publicar, borrador local
+// y ayudas junto al cursor.
 // =============================================================================
 
 // ── Configuración ──
@@ -41,7 +43,8 @@ const STATUS_RESET_MS = 7000;
 let map;
 let nodes = [], edges = [], zones = [];
 let mode = 'view';              // 'view' | 'create' | 'modify'
-let waypointMode = false;       // Crear: cada clic crea un punto de ruta sin menú
+let waypointMode = false;       // Crear: cada clic crea un punto de ruta conectado al anterior (trazado continuo)
+let route = null;               // trazado en curso: { trail: [ids] }; el último existente es el ancla
 let stairsMode = false;         // Crear: las conexiones nuevas son escaleras
 let currentFloor = 1, currentBuilding = 'exterior';
 let currentSedeId = null;       // sede cargada; para revertir el selector si se cancela el cambio
@@ -59,13 +62,46 @@ let draw = null;                // dibujo en curso: { kind: 'zone'|'building', a
 let editingZoneId = null;       // zona cuyo contorno se está editando
 let editingZoneBackup = null;   // coordenadas al empezar, para cancelar
 let undoStack = [], redoStack = [];
+let commitDepth = 0;            // commit() anidado: un solo paso de historial por acción
 let publishing = false;
+let rubber = null;              // línea guía desde el ancla de una conexión o ruta hasta el cursor
+let searchResults = [], searchIndex = -1;
+let reviewOpen = false;
+let hintsOn = readPref('naviusm-editor-hints', '1') === '1';
+let draftTimer = null;
+const DRAFT_VERSION = 1;
 
 // =============================================================================
 // Utilidades
 // =============================================================================
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function readPref(key, fallback) {
+  try { return localStorage.getItem(key) ?? fallback; } catch (_) { return fallback; }
+}
+
+function writePref(key, value) {
+  try { localStorage.setItem(key, value); } catch (_) { /* sin almacenamiento: solo dura esta sesión */ }
+}
+
+// Para buscar sin distinguir mayúsculas ni tildes
+function normalizeText(s) {
+  return String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+}
+
+// Huella corta de un texto (djb2), para saber si el mapa publicado cambió desde un borrador
+function hashText(str) {
+  let h = 5381;
+  for (let i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(16);
+}
+
+// Nombres que el editor pone solo (o vacíos): la revisión los marca como "sin nombre"
+function hasAutoName(n) {
+  const name = (n.name || '').trim();
+  return !name || name === 'Sin nombre' || /^Nodo [0-9A-F]{8}$/.test(name);
 }
 
 function isPoiType(type) {
@@ -211,7 +247,10 @@ function markDirty() {
   dirtyCheckPending = true;
   requestAnimationFrame(() => {
     dirtyCheckPending = false;
-    setDirty(JSON.stringify(serializeState()) !== cleanState);
+    const json = JSON.stringify(serializeState());
+    setDirty(json !== cleanState);
+    scheduleDraftSave(json);
+    if (reviewOpen) renderReview();
   });
 }
 
@@ -223,6 +262,50 @@ function markClean() {
 function setDirty(dirty) {
   hasUnsavedChanges = dirty;
   document.getElementById('dirty-badge').hidden = !dirty;
+}
+
+// =============================================================================
+// Borrador local: copia de los cambios sin publicar en este navegador, por sede.
+// Se ofrece recuperarla al volver a abrir la sede y se borra al publicar o descartar.
+// =============================================================================
+function draftKey(sedeId) {
+  return `naviusm-draft:${sedeId}`;
+}
+
+// La clave y el contenido se fijan al programar el guardado, por si cambia la sede antes de escribir
+function scheduleDraftSave(json) {
+  clearTimeout(draftTimer);
+  const sedeId = currentSedeId, dirty = hasUnsavedChanges, base = hashText(cleanState || '');
+  if (!sedeId) return;
+  draftTimer = setTimeout(() => {
+    try {
+      if (!dirty) { localStorage.removeItem(draftKey(sedeId)); return; }
+      localStorage.setItem(draftKey(sedeId), `{"v":${DRAFT_VERSION},"savedAt":${Date.now()},"base":"${base}","state":${json}}`);
+    } catch (_) { /* sin espacio o almacenamiento bloqueado: el borrador es solo una ayuda */ }
+  }, 800);
+}
+
+function clearDraft(sedeId) {
+  clearTimeout(draftTimer);
+  try { localStorage.removeItem(draftKey(sedeId)); } catch (_) { /* nada que borrar */ }
+}
+
+async function offerDraftRecovery(sedeId) {
+  let draft = null;
+  try { draft = JSON.parse(localStorage.getItem(draftKey(sedeId)) || 'null'); } catch (_) { draft = null; }
+  if (!draft || draft.v !== DRAFT_VERSION || !draft.state) return;
+  if (JSON.stringify(draft.state) === cleanState) { clearDraft(sedeId); return; }
+
+  const when = new Date(draft.savedAt).toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' });
+  const changed = draft.base !== hashText(cleanState || '');
+  const msg = `Hay cambios sin publicar de esta sede guardados en este navegador (${when}).`
+    + (changed ? '\nEl mapa publicado cambió después de ese borrador: si lo recuperas y publicas, reemplazará lo publicado.' : '')
+    + '\n¿Recuperarlos? Si eliges Cancelar, el borrador se descarta.';
+  if (!(await window.uiConfirm(msg, 'Recuperar cambios'))) { clearDraft(sedeId); return; }
+  if (currentSedeId !== sedeId) return; // se cambió de sede mientras estaba abierto el diálogo
+  pushHistory(); // deshacer vuelve al mapa publicado
+  restoreState(draft.state);
+  setStatus('Cambios recuperados del borrador', 'ok');
 }
 
 let baseStatus = { msg: 'Listo', state: 'ok' };
@@ -260,6 +343,8 @@ window.addEventListener('load', () => {
   }).addTo(map);
 
   map.on('click', onMapClick);
+  map.on('mousemove', onMapMouseMove);
+  map.on('mouseout', hideCursorHint);
   map.on('popupopen', (e) => { activePopup = e.popup; fitPopup(e.popup); });
   map.on('popupclose', (e) => {
     if (activePopup === e.popup) activePopup = null;
@@ -270,6 +355,8 @@ window.addEventListener('load', () => {
   // Fase de captura: corre antes que el manejador de Esc de Leaflet, con el popup aún abierto
   document.addEventListener('keydown', onKeyDown, true);
   new MutationObserver(applyThemeToMap).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+  initSearch();
+  setToggle('btn-hints', hintsOn);
 
   centrarMapaEnSede();
   loadFromServer();
@@ -289,6 +376,7 @@ function setMode(m, { force = false } = {}) {
   if (editingZoneId) finishVertexEditing();
   if (draw) cancelDrawing();
   cancelEdge();
+  endRoute();
   clearSelection();
   if (map) map.closePopup();
   mode = m;
@@ -310,7 +398,17 @@ function setToggle(id, on) {
 function toggleWaypointMode() {
   waypointMode = !waypointMode;
   setToggle('btn-waypoints', waypointMode);
-  setStatus(waypointMode ? 'Puntos de ruta: cada clic crea un punto' : 'Puntos de ruta desactivado', 'ok');
+  cancelEdge();
+  if (!waypointMode) endRoute();
+  setStatus(waypointMode ? 'Puntos de ruta: cada clic crea un punto conectado al anterior' : 'Puntos de ruta desactivado', 'ok');
+}
+
+function toggleHints() {
+  hintsOn = !hintsOn;
+  writePref('naviusm-editor-hints', hintsOn ? '1' : '0');
+  setToggle('btn-hints', hintsOn);
+  if (!hintsOn) hideCursorHint();
+  setStatus(hintsOn ? 'Ayudas junto al cursor activadas' : 'Ayudas junto al cursor desactivadas', 'ok');
 }
 
 function toggleStairsMode() {
@@ -348,6 +446,9 @@ function onKeyDown(ev) {
   const key = ev.key || '';
   const lower = key.toLowerCase();
   const mod = ev.ctrlKey || ev.metaKey;
+  if (mod && !ev.altKey && lower === 'f') { ev.preventDefault(); focusSearch(); return; }
+  // El buscador maneja sus propias teclas (flechas, Enter, Esc)
+  if (ev.target.id === 'map-search') return;
   const inField = isEditableTarget(ev.target);
   const inPopup = !!ev.target.closest?.('.leaflet-popup');
   const inBar = !!ev.target.closest?.('.map-bar');
@@ -373,6 +474,7 @@ function onKeyDown(ev) {
     return;
   }
   if (key === '?') { ev.preventDefault(); openHelp(); return; }
+  if (key === '/') { ev.preventDefault(); focusSearch(); return; }
   if (/^[0-9]$/.test(key) && ctx && ctx.step === 'menu') {
     const opt = ctx.options.find(o => o.key === key);
     if (opt) { ev.preventDefault(); opt.action(); }
@@ -383,6 +485,8 @@ function onKeyDown(ev) {
     c: () => setMode('create'),
     m: () => setMode('modify'),
     l: () => toggleLegend(),
+    h: () => toggleHints(),
+    r: () => (reviewOpen ? closeReview() : openReview()),
     w: () => { if (mode === 'create') toggleWaypointMode(); },
     e: () => { if (mode === 'create') toggleStairsMode(); },
   };
@@ -396,15 +500,18 @@ function handleEnter(ev) {
   if (primary) { primary.click(); return true; }
   if (editingZoneId) { finishVertexEditing(); return true; }
   if (draw) { saveDrawing(); return true; }
+  if (route) { endRoute(); return true; }
   return false;
 }
 
-// Esc deshace un nivel por vez: popup, edición de contorno, dibujo, conexión, selección y por último vuelve a Ver
+// Esc deshace un nivel por vez: popup, edición de contorno, dibujo, ruta, conexión, revisión, selección y por último vuelve a Ver
 function handleEscape() {
   if (activePopup) { map.closePopup(); return; }
   if (editingZoneId) { cancelVertexEditing(); return; }
   if (draw) { cancelDrawing(); return; }
+  if (route) { endRoute(); return; }
   if (edgeFrom) { cancelEdge(); return; }
+  if (reviewOpen) { closeReview(); return; }
   if (selection) { clearSelection(); return; }
   if (mode !== 'view') setMode('view');
 }
@@ -439,8 +546,11 @@ function updateHistoryButtons() {
 
 // Aplica un cambio guardando antes el estado para poder deshacerlo
 function commit(fn) {
-  pushHistory();
-  fn();
+  if (commitDepth === 0) pushHistory();
+  commitDepth++;
+  try { fn(); } finally { commitDepth--; }
+  if (commitDepth > 0) return;
+  syncAnchors();
   markDirty();
   renderMapNodes();
 }
@@ -472,6 +582,7 @@ function restoreState(state) {
   clearLayers();
   buildFromState(state);
   updateBuildingSelector();
+  syncAnchors(); // al deshacer durante una ruta, el ancla vuelve al punto anterior que siga existiendo
   renderMapNodes();
   markDirty();
   updateHistoryButtons();
@@ -580,6 +691,9 @@ function applyThemeToMap() {
 function createZoneObject(d) {
   const zone = { id: d.id, building: d.building || null, name: d.name, tags: d.tags || [], color: d.color, geojson: d.geojson, polygon: null };
   zone.polygon = L.geoJSON(zone.geojson, { style: zoneStyle(zone) }).addTo(map);
+  // Las zonas van bajo las conexiones: en el canvas recibe el clic la figura de más arriba,
+  // y una zona dibujada después taparía las conexiones que están dentro de ella
+  zone.polygon.bringToBack();
   zone.polygon.on('click', (ev) => onZoneClick(zone.id, ev));
   zone.polygon.on('contextmenu', (ev) => {
     L.DomEvent.stopPropagation(ev);
@@ -702,8 +816,8 @@ function onMapClick(e) {
   if (editingZoneId) { insertVertexIntoEditingZone(e.latlng); return; }
   if (draw) { addDrawVertex(e.latlng); return; }
   if (mode !== 'create') { clearSelection(); return; }
+  if (waypointMode) { routeClickAt(e.latlng); return; }
   if (edgeFrom) { cancelEdge(); return; }
-  if (waypointMode) { createNode('waypoint', e.latlng); return; }
   if (e.originalEvent?.shiftKey && lastCreated) { repeatLast(e.latlng); return; }
   openCreateMenu(e.latlng);
 }
@@ -715,6 +829,7 @@ function onNodeClick(id, ev) {
   if (draw) { addDrawVertex(n.latlng); return; } // dibujar un contorno usando nodos como esquinas
   if (mode === 'view') { openInfoPopup('node', id, ev.latlng); return; }
   if (mode === 'create') {
+    if (waypointMode) { routeToNode(id); return; }
     if (!edgeFrom) startEdge(id);
     else if (edgeFrom !== id) { createEdge(edgeFrom, id); cancelEdge(); }
     else cancelEdge();
@@ -725,9 +840,10 @@ function onNodeClick(id, ev) {
 }
 
 function onEdgeClick(id, ev) {
-  // En Crear y al dibujar, el clic sigue hacia el mapa (permite crear junto a una conexión)
-  if (editingZoneId || draw || mode === 'create') return;
+  // Al dibujar, el clic sigue hacia el mapa (agrega una esquina junto a la conexión)
+  if (editingZoneId || draw) return;
   L.DomEvent.stopPropagation(ev);
+  if (mode === 'create') { splitEdgeAt(id, ev.latlng); return; }
   if (mode === 'view') { openInfoPopup('edge', id, ev.latlng); return; }
   select('edge', id);
   openEditPopup('edge', id, ev.latlng);
@@ -872,21 +988,29 @@ function repeatLast(latlng) {
   showNodeForm(kind === 'building' ? 'building' : type);
 }
 
-function createNode(type, latlng, fields = {}) {
-  if (nodes.some(n => n.floor === currentFloor && n.latlng.distanceTo(latlng) < 0.5)) return null;
-  let node = null;
-  commit(() => {
-    const id = crypto.randomUUID();
-    const shortId = id.split('-')[0].toUpperCase();
-    const sys = SYSTEM_TYPES[type];
-    node = createNodeObject({
-      id, type,
-      name: (fields.name || '').trim() || (type === 'waypoint' ? `WP-${shortId}` : `Nodo ${shortId}`),
-      icon: (isPoiType(type) && (fields.icon || '').trim()) || sys.icon,
-      lat: latlng.lat, lng: latlng.lng, floor: currentFloor, building: currentBuilding,
-      horario: (fields.horario || '').trim(), descripcion: (fields.descripcion || '').trim(), link_derivacion: (fields.link || '').trim(),
-    });
+// Nodo existente a menos de medio metro en el piso visible (evita duplicados por doble clic)
+function nodeAtPoint(latlng, floor = currentFloor) {
+  return nodes.find(n => n.floor === floor && n.latlng.distanceTo(latlng) < 0.5) || null;
+}
+
+// Crea el nodo sin historial (lo llama commit)
+function addNodeRaw(type, latlng, fields = {}, { floor = currentFloor, building = currentBuilding } = {}) {
+  const id = crypto.randomUUID();
+  const shortId = id.split('-')[0].toUpperCase();
+  const sys = SYSTEM_TYPES[type];
+  return createNodeObject({
+    id, type,
+    name: (fields.name || '').trim() || (type === 'waypoint' ? `WP-${shortId}` : `Nodo ${shortId}`),
+    icon: (isPoiType(type) && (fields.icon || '').trim()) || sys.icon,
+    lat: latlng.lat, lng: latlng.lng, floor, building,
+    horario: (fields.horario || '').trim(), descripcion: (fields.descripcion || '').trim(), link_derivacion: (fields.link || '').trim(),
   });
+}
+
+function createNode(type, latlng, fields = {}) {
+  if (nodeAtPoint(latlng)) return null;
+  let node = null;
+  commit(() => { node = addNodeRaw(type, latlng, fields); });
   lastCreated = { kind: 'node', type };
   return node;
 }
@@ -896,27 +1020,145 @@ function createNode(type, latlng, fields = {}) {
 // =============================================================================
 function startEdge(id) {
   edgeFrom = id;
-  nodes.find(n => n.id === id)?.el.classList.add('is-edge-source');
+  markAnchor(id);
   setStatus('Elige el nodo de destino (Esc cancela)', 'warn', { sticky: true });
 }
 
 function cancelEdge() {
   if (!edgeFrom) return;
-  nodes.find(n => n.id === edgeFrom)?.el.classList.remove('is-edge-source');
   edgeFrom = null;
+  markAnchor(routeAnchor());
+  updateRubber(null);
   restoreBaseStatus();
 }
 
+function edgeExists(a, b) {
+  return edges.some(e => (e.from === a && e.to === b) || (e.from === b && e.to === a));
+}
+
+// Crea la conexión sin historial (lo llama commit). Peso: distancia en metros + 15 por piso de diferencia
+function addEdgeRaw(from, to, esEscalera = stairsMode) {
+  if (from === to || edgeExists(from, to)) return null;
+  const f = nodes.find(n => n.id === from), t = nodes.find(n => n.id === to);
+  if (!f || !t) return null;
+  const weight = map.distance(f.latlng, t.latlng) + Math.abs(f.floor - t.floor) * 15;
+  return createEdgeObject({ id: crypto.randomUUID(), from, to, weight, es_escalera: esEscalera });
+}
+
 function createEdge(from, to) {
-  if (edges.some(e => (e.from === from && e.to === to) || (e.from === to && e.to === from))) {
+  if (edgeExists(from, to)) {
     showMapHint(nodes.find(n => n.id === to).latlng, 'Esos nodos ya están conectados');
     return;
   }
+  commit(() => addEdgeRaw(from, to));
+}
+
+// =============================================================================
+// Crear: trazado continuo de rutas (con "Puntos de ruta" activo)
+// Cada clic crea un punto conectado al anterior; un clic en un nodo existente lo conecta
+// y la ruta sigue desde él. Enter, Esc o "Terminar" cierran la ruta.
+// =============================================================================
+function routeAnchor() {
+  return route ? route.trail.at(-1) : null;
+}
+
+function setRouteAnchor(id) {
+  if (!route) route = { trail: [] };
+  if (route.trail.at(-1) !== id) route.trail.push(id);
+  document.getElementById('route-bar').hidden = false;
+  markAnchor(id);
+}
+
+function endRoute() {
+  if (!route) return;
+  route = null;
+  document.getElementById('route-bar').hidden = true;
+  markAnchor(edgeFrom);
+  updateRubber(null);
+}
+
+function routeClickAt(latlng) {
+  const existing = nodeAtPoint(latlng);
+  if (existing) { routeToNode(existing.id); return; }
+  const from = routeAnchor();
+  let wp = null;
   commit(() => {
-    const f = nodes.find(n => n.id === from), t = nodes.find(n => n.id === to);
-    const weight = map.distance(f.latlng, t.latlng) + Math.abs(f.floor - t.floor) * 15;
-    createEdgeObject({ id: crypto.randomUUID(), from, to, weight, es_escalera: stairsMode });
+    wp = addNodeRaw('waypoint', latlng);
+    if (from) addEdgeRaw(from, wp.id);
   });
+  lastCreated = { kind: 'node', type: 'waypoint' };
+  setRouteAnchor(wp.id);
+}
+
+function routeToNode(id) {
+  const from = routeAnchor();
+  if (from === id) { endRoute(); return; } // clic de nuevo en el último punto: termina
+  if (from && !edgeExists(from, id)) commit(() => addEdgeRaw(from, id));
+  setRouteAnchor(id);
+}
+
+// Resalta el nodo desde el que sale la próxima conexión (ruta o conexión simple)
+function markAnchor(id) {
+  nodes.forEach(n => n.el.classList.toggle('is-edge-source', n.id === id));
+}
+
+// Tras cambios o deshacer: el ancla debe seguir existiendo (y los nodos recreados pierden su clase)
+function syncAnchors() {
+  if (edgeFrom && !nodes.some(n => n.id === edgeFrom)) cancelEdge();
+  if (route) {
+    route.trail = route.trail.filter(id => nodes.some(n => n.id === id));
+    if (!route.trail.length) { endRoute(); return; }
+  }
+  markAnchor(routeAnchor() || edgeFrom);
+}
+
+// Línea guía del ancla al cursor
+function updateRubber(latlng) {
+  const fromId = mode === 'create' ? (routeAnchor() || edgeFrom) : null;
+  const from = fromId && nodes.find(n => n.id === fromId);
+  if (!from || !latlng || from.floor !== currentFloor) {
+    if (rubber) { rubber.removeFrom(map); rubber = null; }
+    return;
+  }
+  if (!rubber) {
+    rubber = L.polyline([from.latlng, latlng], { color: themeVar('--map-draft'), weight: 2, dashArray: '4,6', interactive: false }).addTo(map);
+  } else {
+    rubber.setLatLngs([from.latlng, latlng]);
+  }
+}
+
+// =============================================================================
+// Crear: dividir una conexión con un clic
+// Inserta un punto de ruta en el lugar del clic y reemplaza A-B por A-P y P-B (conservan
+// el tipo escalera). Si hay una ruta o una conexión en curso, además conecta con el punto nuevo.
+// =============================================================================
+function splitEdgeAt(id, latlng) {
+  const e = edges.find(x => x.id === id);
+  if (!e) return;
+  const fn = nodes.find(n => n.id === e.from), tn = nodes.find(n => n.id === e.to);
+  if (!fn || !tn) return;
+  if (fn.floor !== tn.floor) { showMapHint(latlng, 'No se puede dividir una conexión entre pisos'); return; }
+
+  // Punto sobre la línea más cercano al clic (en píxeles de pantalla)
+  const a = map.latLngToLayerPoint(fn.latlng), b = map.latLngToLayerPoint(tn.latlng);
+  const q = L.LineUtil.closestPointOnSegment(map.latLngToLayerPoint(latlng), a, b);
+  const at = map.layerPointToLatLng(q);
+  // Muy cerca de un extremo: se usa ese nodo en vez de dividir
+  const near = [fn, tn].find(n => map.latLngToLayerPoint(n.latlng).distanceTo(q) < 8);
+  if (near) { onNodeClick(near.id, { latlng: near.latlng }); return; }
+
+  const from = waypointMode ? routeAnchor() : edgeFrom;
+  let wp = null;
+  commit(() => {
+    removeEdge(id);
+    wp = addNodeRaw('waypoint', at, {}, { floor: fn.floor, building: fn.building === tn.building ? fn.building : currentBuilding });
+    addEdgeRaw(e.from, wp.id, e.es_escalera);
+    addEdgeRaw(wp.id, e.to, e.es_escalera);
+    if (from) addEdgeRaw(from, wp.id); // si el ancla era un extremo, esa conexión ya existe y se omite
+  });
+  if (waypointMode) setRouteAnchor(wp.id);
+  else if (edgeFrom) cancelEdge();
+  else setStatus('Conexión dividida', 'ok');
 }
 
 // =============================================================================
@@ -1416,6 +1658,7 @@ function changeFloor() {
   const floorVal = document.getElementById('floor-selector').value;
   currentFloor = floorVal ? parseInt(floorVal, 10) : 1;
   cancelEdge();
+  endRoute();
   renderMapNodes();
 }
 
@@ -1442,6 +1685,260 @@ function renderMapNodes() {
 }
 
 // =============================================================================
+// Ubicar elementos (búsqueda y revisión): cambia a su edificio y piso, centra y resalta
+// =============================================================================
+function locateNodes(ids, { open = false } = {}) {
+  const list = ids.map(id => nodes.find(n => n.id === id)).filter(Boolean);
+  if (!list.length) return;
+  const first = list[0];
+  if (map) map.closePopup();
+  cancelEdge();
+  endRoute();
+  currentBuilding = first.type === 'building' ? 'exterior' : (first.building || 'exterior');
+  currentFloor = first.floor;
+  updateBuildingSelector();
+  renderMapNodes();
+
+  const sameFloor = list.filter(n => n.floor === first.floor);
+  if (sameFloor.length > 1) {
+    map.fitBounds(L.latLngBounds(sameFloor.map(n => n.latlng)), { padding: [80, 80], maxZoom: 20, animate: false });
+  } else {
+    map.setView(first.latlng, Math.max(map.getZoom(), 19), { animate: false });
+  }
+  sameFloor.forEach(flashNode);
+
+  if (!open) return;
+  if (mode === 'view') openInfoPopup('node', first.id, first.latlng);
+  else if (mode === 'modify') { select('node', first.id); openEditPopup('node', first.id, first.latlng); }
+}
+
+function flashNode(n) {
+  n.el.classList.remove('is-found');
+  void n.el.offsetWidth; // reinicia la animación si ya estaba
+  n.el.classList.add('is-found');
+  setTimeout(() => n.el.classList.remove('is-found'), 1800);
+}
+
+// =============================================================================
+// Búsqueda de nodos y edificios (/ o Ctrl/Cmd+F)
+// =============================================================================
+function initSearch() {
+  const input = document.getElementById('map-search');
+  input.addEventListener('input', runSearch);
+  input.addEventListener('focus', runSearch);
+  input.addEventListener('blur', () => setTimeout(hideSearchResults, 150));
+  input.addEventListener('keydown', (ev) => {
+    if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+      ev.preventDefault();
+      if (!searchResults.length) return;
+      const step = ev.key === 'ArrowDown' ? 1 : -1;
+      searchIndex = (searchIndex + step + searchResults.length) % searchResults.length;
+      renderSearchResults();
+    } else if (ev.key === 'Enter') {
+      ev.preventDefault();
+      const pick = searchResults[Math.max(0, searchIndex)];
+      if (pick) chooseSearchResult(pick);
+    } else if (ev.key === 'Escape') {
+      ev.preventDefault();
+      input.value = '';
+      hideSearchResults();
+      input.blur();
+    }
+  });
+}
+
+function focusSearch() {
+  const input = document.getElementById('map-search');
+  input.focus();
+  input.select();
+}
+
+function runSearch() {
+  const q = normalizeText(document.getElementById('map-search').value);
+  if (!q) { hideSearchResults(); return; }
+  const scored = [];
+  nodes.forEach(n => {
+    if (n.type === 'waypoint') return;
+    const name = normalizeText(n.name);
+    const pos = name.indexOf(q);
+    if (pos === -1) return;
+    scored.push({ n, score: pos === 0 ? 0 : (name.includes(' ' + q) ? 1 : 2) });
+  });
+  scored.sort((a, b) => a.score - b.score || a.n.name.localeCompare(b.n.name, 'es'));
+  searchResults = scored.slice(0, 8).map(x => x.n);
+  searchIndex = searchResults.length ? 0 : -1;
+  renderSearchResults();
+}
+
+function renderSearchResults() {
+  const box = document.getElementById('search-results');
+  box.innerHTML = '';
+  if (!searchResults.length) {
+    const empty = document.createElement('div');
+    empty.className = 'search-empty';
+    empty.textContent = 'Sin resultados';
+    box.appendChild(empty);
+  }
+  searchResults.forEach((n, i) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'search-item' + (i === searchIndex ? ' active' : '');
+    b.setAttribute('role', 'option');
+    const title = document.createElement('span');
+    title.textContent = n.name || 'Sin nombre';
+    const meta = document.createElement('small');
+    meta.textContent = n.type === 'building'
+      ? 'Edificio'
+      : `${NODE_TYPE_LABELS[n.type] || n.type} - ${buildingName(n.building)} - ${floorLabel(n.floor)}`;
+    b.append(title, meta);
+    // mousedown: ocurre antes del blur del campo, que esconde la lista
+    b.addEventListener('mousedown', (ev) => { ev.preventDefault(); chooseSearchResult(n); });
+    box.appendChild(b);
+  });
+  box.hidden = false;
+}
+
+function hideSearchResults() {
+  document.getElementById('search-results').hidden = true;
+}
+
+function chooseSearchResult(n) {
+  const input = document.getElementById('map-search');
+  hideSearchResults();
+  input.blur();
+  locateNodes([n.id], { open: true });
+}
+
+// =============================================================================
+// Revisión antes de publicar (R): avisos que conviene corregir, con clic para ubicarlos
+// =============================================================================
+function collectIssues() {
+  const degree = new Map(nodes.map(n => [n.id, 0]));
+  edges.forEach(e => { degree.set(e.from, (degree.get(e.from) || 0) + 1); degree.set(e.to, (degree.get(e.to) || 0) + 1); });
+
+  const isolated = nodes.filter(n => degree.get(n.id) === 0);
+
+  // Componentes conexas entre los nodos que tienen alguna conexión (unión-búsqueda)
+  const parent = new Map();
+  const find = (x) => { while (parent.get(x) !== x) { parent.set(x, parent.get(parent.get(x))); x = parent.get(x); } return x; };
+  nodes.forEach(n => { if (degree.get(n.id) > 0) parent.set(n.id, n.id); });
+  edges.forEach(e => { if (parent.has(e.from) && parent.has(e.to)) parent.set(find(e.from), find(e.to)); });
+  const groups = new Map();
+  parent.forEach((_, id) => { const r = find(id); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(id); });
+  const components = [...groups.values()].sort((a, b) => b.length - a.length).slice(1); // la mayor es la red principal
+
+  const unnamed = nodes.filter(n => isPoiType(n.type) && hasAutoName(n));
+  return { isolated, components, unnamed, total: isolated.length + components.length + unnamed.length };
+}
+
+function openReview() {
+  reviewOpen = true;
+  document.getElementById('review-panel').hidden = false;
+  setToggle('btn-review', true);
+  renderReview();
+}
+
+function closeReview() {
+  reviewOpen = false;
+  document.getElementById('review-panel').hidden = true;
+  setToggle('btn-review', false);
+}
+
+function renderReview() {
+  const issues = collectIssues();
+  const body = document.getElementById('review-body');
+  body.innerHTML = '';
+  document.getElementById('review-summary').textContent = issues.total
+    ? `${issues.total} ${issues.total === 1 ? 'aviso' : 'avisos'}. Haz clic en uno para ubicarlo.`
+    : 'Sin avisos. El mapa está listo para publicar.';
+  document.getElementById('review-publish').textContent = issues.total ? 'Publicar de todos modos' : 'Publicar';
+
+  const nodeLabel = (n) => `${n.name || 'Sin nombre'} - ${n.type === 'building' ? 'Edificio' : floorLabel(n.floor)}`;
+  const section = (title, help, items) => {
+    if (!items.length) return;
+    const h = document.createElement('div');
+    h.className = 'review-title';
+    h.textContent = `${title} (${items.length})`;
+    const p = document.createElement('div');
+    p.className = 'review-help';
+    p.textContent = help;
+    body.append(h, p);
+    items.forEach(({ label, ids }) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'review-item';
+      b.textContent = label;
+      b.addEventListener('click', () => locateNodes(ids));
+      body.appendChild(b);
+    });
+  };
+  section('Sin conexiones', 'La app no puede llegar a estos puntos.',
+    issues.isolated.map(n => ({ label: nodeLabel(n), ids: [n.id] })));
+  section('Grupos desconectados', 'Redes separadas de la principal: desde ellas no se llega al resto.',
+    issues.components.map(ids => {
+      const named = ids.map(id => nodes.find(n => n.id === id)).find(n => n && n.type !== 'waypoint');
+      return { label: `Grupo de ${ids.length} puntos${named ? ` (incluye ${named.name})` : ''}`, ids };
+    }));
+  section('Sin nombre', 'En la app se mostrarían con un nombre automático.',
+    issues.unnamed.map(n => ({ label: `${NODE_TYPE_LABELS[n.type] || n.type} - ${n.type === 'building' ? 'Edificio' : floorLabel(n.floor)}`, ids: [n.id] })));
+}
+
+// =============================================================================
+// Ayudas junto al cursor (H)
+// =============================================================================
+function onMapMouseMove(e) {
+  updateRubber(e.latlng);
+  if (!hintsOn) return;
+  const overPopup = e.originalEvent?.target?.closest?.('.leaflet-popup');
+  const text = overPopup ? null : cursorHintText();
+  const el = document.getElementById('cursor-hint');
+  if (!text) { el.hidden = true; return; }
+  el.textContent = text;
+  el.hidden = false;
+  const size = map.getSize();
+  const x = e.containerPoint.x, y = e.containerPoint.y;
+  // A la derecha y abajo del cursor; cerca de los bordes, al otro lado
+  const left = x + 16 + el.offsetWidth > size.x ? x - 12 - el.offsetWidth : x + 16;
+  const top = y + 20 + el.offsetHeight > size.y ? y - 12 - el.offsetHeight : y + 20;
+  el.style.transform = `translate(${Math.round(left)}px, ${Math.round(top)}px)`;
+}
+
+function hideCursorHint() {
+  document.getElementById('cursor-hint').hidden = true;
+  updateRubber(null);
+}
+
+function cursorHintText() {
+  const h = hover;
+  const vertexHint = 'Arrastrar: mover - Clic derecho o Supr: quitar';
+  if (editingZoneId) return h?.kind === 'vertex' ? vertexHint : 'Clic: agregar punto al contorno';
+  if (draw) {
+    if (h?.kind === 'vertex') return vertexHint;
+    return draw.vertices.length >= 3 ? 'Clic: agregar esquina - Enter: guardar' : 'Clic: agregar esquina';
+  }
+  if (mode === 'view') return h ? 'Clic: ver detalles' : null;
+  if (mode === 'modify') {
+    if (!h) return null;
+    return h.kind === 'node' ? 'Clic: editar - Arrastrar: mover - Supr: eliminar' : 'Clic: editar - Supr: eliminar';
+  }
+  // Crear
+  const del = ' - Clic derecho: eliminar';
+  if (waypointMode) {
+    if (h?.kind === 'node') return (route ? 'Clic: conectar y seguir' : 'Clic: empezar ruta aquí') + del;
+    if (h?.kind === 'edge') return (route ? 'Clic: dividir y conectar' : 'Clic: dividir conexión') + del;
+    return route ? 'Clic: siguiente punto - Enter o Esc: terminar' : 'Clic: primer punto de la ruta';
+  }
+  if (edgeFrom) {
+    if (h?.kind === 'node') return 'Clic: conectar';
+    if (h?.kind === 'edge') return 'Clic: dividir y conectar';
+    return 'Clic en un nodo: conectar - Esc: cancelar';
+  }
+  if (h?.kind === 'node') return 'Clic: conectar con otro nodo' + del;
+  if (h?.kind === 'edge') return 'Clic: dividir conexión' + del;
+  return lastCreated ? 'Clic: crear - Shift + clic: repetir' : 'Clic: crear';
+}
+
+// =============================================================================
 // Carga y publicación
 // =============================================================================
 // Cambio de sede desde el selector: pedir confirmación si hay cambios sin publicar
@@ -1452,6 +1949,7 @@ async function onSedeChange() {
       "Tienes cambios sin publicar en esta sede. Si cambias de sede se perderán.\n¿Continuar de todos modos?",
       "Cambios sin publicar");
     if (!proceed) { sel.value = currentSedeId; return; }
+    clearDraft(currentSedeId); // aceptó perder los cambios: no se ofrecerán al volver
   }
   loadFromServer();
 }
@@ -1460,6 +1958,7 @@ async function loadFromServer() {
   setMode('view', { force: true }); // al cargar o cambiar de sede siempre se parte en modo Ver
   const sedeId = document.getElementById('sede-selector')?.value;
   if (!sedeId) return;
+  clearTimeout(draftTimer);
   currentSedeId = sedeId;
   setStatus('Cargando...', 'warn', { sticky: true });
   centrarMapaEnSede();
@@ -1470,12 +1969,14 @@ async function loadFromServer() {
       hardClearMap();
       markClean();
       setStatus('Mapa nuevo', 'ok', { base: true });
+      await offerDraftRecovery(sedeId);
       return;
     }
     if (!res.ok) throw new Error();
     loadGraph(await res.json());
     markClean();
     setStatus('Grafo cargado', 'ok', { base: true });
+    await offerDraftRecovery(sedeId);
   } catch (err) {
     console.error(err);
     setStatus('Error cargando el mapa', 'err', { base: true });
@@ -1485,6 +1986,7 @@ async function loadFromServer() {
 function hardClearMap() {
   map.closePopup();
   if (draw) cancelDrawing();
+  closeReview();
   clearLayers();
   resetHistory();
   originalNodes = new Set();
@@ -1497,6 +1999,7 @@ function hardClearMap() {
 // Convierte el snapshot publicado al estado del editor (con las correcciones de datos antiguos)
 function loadGraph(data) {
   map.closePopup();
+  closeReview();
   clearLayers();
   resetHistory();
   lastCreated = null;
@@ -1545,19 +2048,22 @@ function loadGraph(data) {
   renderMapNodes();
 }
 
-async function publishToServer() {
+// Si hay avisos, primero se muestra la revisión; "Publicar de todos modos" llama con skipReview
+async function publishToServer({ skipReview = false } = {}) {
   if (publishing) return;
   const sedeId = document.getElementById('sede-selector')?.value;
   if (!sedeId) return;
   if (editingZoneId) finishVertexEditing();
   if (draw) { setStatus('Guarda o cancela el dibujo antes de publicar', 'warn'); return; }
+  endRoute();
+  if (!skipReview && collectIssues().total > 0) {
+    openReview();
+    setStatus('Revisa los avisos antes de publicar', 'warn');
+    return;
+  }
+  closeReview();
   publishing = true;
   try {
-    const orphaned = nodes.filter(n => n.type === 'waypoint' && !edges.some(e => e.from === n.id || e.to === n.id));
-    if (orphaned.length > 0) {
-      const proceed = await window.uiConfirm(`Hay ${orphaned.length} puntos de ruta sin conexiones.\n¿Publicar de todos modos?`, "Advertencia");
-      if (!proceed) return;
-    }
 
     const currentNodes = new Set(nodes.filter(n => isPoiType(n.type) && n.type !== 'building').map(n => n.id));
     const currentBuildings = new Set(nodes.filter(n => n.type === 'building').map(n => n.id));
@@ -1590,6 +2096,7 @@ async function publishToServer() {
       });
       if (!res.ok) throw new Error();
       markClean();
+      clearDraft(sedeId);
       originalNodes = new Set(currentNodes);
       originalBuildings = new Set(currentBuildings);
       baseStatus = { msg: 'Grafo cargado', state: 'ok' }; // tras publicar, un "Mapa nuevo" ya tiene grafo
