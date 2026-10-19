@@ -25,6 +25,9 @@
   --naviusm-mono: 'Space Mono', monospace;
   --naviusm-select-arrow: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23e0eaf5' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3e%3c/svg%3e");
   --radius: 8px;
+  /* Botón secundario: más oscuro que cualquier fondo donde aparece (página, barras, tarjetas, popups) */
+  --btn-neutral-bg: #08101a;
+  --btn-neutral-hover: #1e3050;
   color-scheme: dark;
 }
 
@@ -47,6 +50,8 @@
   --naviusm-muted: #5f6e84;
   --naviusm-shadow: rgba(15, 23, 42, 0.16);
   --naviusm-select-arrow: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%231b2533' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3e%3c/svg%3e");
+  --btn-neutral-bg: #dfe4eb;
+  --btn-neutral-hover: #ccd3dd;
   color-scheme: light;
 }
 
@@ -168,16 +173,16 @@ body {
 }
 
 .btn-secondary {
-  --bs-btn-bg: var(--naviusm-surface2);
-  --bs-btn-color: var(--naviusm-text);
+  --bs-btn-bg: var(--btn-neutral-bg);
+  --bs-btn-color: var(--naviusm-text-strong);
   --bs-btn-border-color: var(--naviusm-border);
-  --bs-btn-hover-bg: var(--naviusm-border);
+  --bs-btn-hover-bg: var(--btn-neutral-hover);
   --bs-btn-hover-color: var(--naviusm-text-strong);
-  --bs-btn-hover-border-color: var(--naviusm-border);
-  --bs-btn-active-bg: var(--naviusm-border);
+  --bs-btn-hover-border-color: var(--naviusm-muted);
+  --bs-btn-active-bg: var(--btn-neutral-hover);
   --bs-btn-active-color: var(--naviusm-text-strong);
   --bs-btn-active-border-color: var(--naviusm-muted);
-  --bs-btn-disabled-bg: var(--naviusm-surface2);
+  --bs-btn-disabled-bg: var(--btn-neutral-bg);
   --bs-btn-disabled-color: var(--naviusm-muted);
   --bs-btn-disabled-border-color: var(--naviusm-border);
 }
