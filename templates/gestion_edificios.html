@@ -7,7 +7,7 @@
   <div class="page-header page-header-sticky">
     <div class="d-flex align-items-center gap-3">
       <h3>Edificios de</h3>
-      <select id="sede-selector" class="form-select form-select-sm" style="width: auto;" onchange="cambiarSede()" aria-label="Sede">
+      <select id="sede-selector" class="form-select form-select-sm w-auto" onchange="cambiarSede()" aria-label="Sede">
         {% for sede in sedes %}
         <option value="{{ sede.id }}">{{ sede.nombre }}</option>
         {% endfor %}
@@ -37,7 +37,7 @@
     <span id="dirty-badge" class="dirty-badge" hidden>Cambios sin guardar</span>
     <span class="flex-grow-1"></span>
     <button id="btn-descartar" class="btn btn-sm btn-secondary" onclick="descartarCambios()" disabled>Descartar cambios</button>
-    <button id="btn-guardar" class="btn-ed btn-ed-accent" onclick="guardarCambios()" disabled>Guardar cambios</button>
+    <button id="btn-guardar" class="btn btn-sm btn-accent" onclick="guardarCambios()" disabled>Guardar cambios</button>
   </div>
  </div>
 </div>
@@ -61,12 +61,7 @@
   </div>
 </div>
 
-<script>
-  window.GESTION_CONFIG = {
-    rootPath: "{{ request.scope.get('root_path', '') }}",
-    sedesInfo: {{ sedes_json | tojson }}
-  };
-</script>
-<script src="{{ url_for('static', path='js/pisos.js') }}?v=0.9.2"></script>
-<script src="{{ url_for('static', path='js/gestion_edificios.js') }}?v=0.9.2"></script>
+<script type="application/json" id="page-config">{{ {"sedesInfo": sedes_json} | tojson }}</script>
+<script src="{{ url_for('static', path='js/pisos.js') }}?v=0.9.3"></script>
+<script src="{{ url_for('static', path='js/gestion_edificios.js') }}?v=0.9.3"></script>
 {% endblock %}

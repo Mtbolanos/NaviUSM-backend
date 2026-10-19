@@ -14,14 +14,14 @@
 // =============================================================================
 
 // ── Configuración ──
-const BASE_URL = window.APP_CONFIG.rootPath;
-const SEDES_INFO = window.APP_CONFIG.sedesInfo;
-const SCOPE = window.APP_CONFIG.scope === 'building' ? 'building' : 'campus';
+const BASE_URL = NV.site().rootPath;
+const SEDES_INFO = NV.page().sedesInfo;
+const SCOPE = NV.page().scope === 'building' ? 'building' : 'campus';
 const IS_BUILDING = SCOPE === 'building';
 const CONNECTOR_TYPES = { escalera: 'Escalera', ascensor: 'Ascensor', rampa: 'Rampa' };
 const CONNECTOR_LETTER = { escalera: 'E', ascensor: 'A', rampa: 'R' };
 // Mapa base configurable desde el servidor (MAP_TILE_URL); por defecto, OpenStreetMap
-const MAP_TILES = window.MAP_TILES || {
+const MAP_TILES = NV.site().mapTiles || {
   url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
   attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors',
   max_zoom: 19,
@@ -428,7 +428,7 @@ window.addEventListener('load', () => {
   const params = new URLSearchParams(location.search);
   const sel = document.getElementById('sede-selector');
   if (!IS_BUILDING && params.get('sede') && SEDES_INFO.some(x => x.id === params.get('sede'))) sel.value = params.get('sede');
-  if (IS_BUILDING) currentBuilding = params.get('edificio') || window.APP_CONFIG.initialBuilding || null;
+  if (IS_BUILDING) currentBuilding = params.get('edificio') || NV.page().initialBuilding || null;
   pendingLocate = params.get('nodo');
 
   centrarMapaEnSede();
@@ -1660,9 +1660,9 @@ function openInfoPopup(type, id, latlng) {
   }
   const html = `
     <div class="pop-info">
-      <h6 style="margin-bottom:10px; font-weight:bold; color:var(--naviusm-text-strong);">${escapeHtml(title)}</h6>
+      <h6 class="pop-title">${escapeHtml(title)}</h6>
       <dl>${body}</dl>
-      ${bldId ? `<button type="button" class="btn btn-sm btn-outline-secondary w-100 mt-2" onclick="openBuildingEditor('${bldId}')">Editar interior</button>` : ''}
+      ${bldId ? `<button type="button" class="btn btn-sm btn-secondary w-100 mt-2" onclick="openBuildingEditor('${bldId}')">Editar interior</button>` : ''}
     </div>`;
   L.popup({ className: 'nv-popup', autoPan: false, maxWidth: 280 }).setLatLng(latlng).setContent(html).openOn(map);
 }
@@ -1670,7 +1670,7 @@ function openInfoPopup(type, id, latlng) {
 function popupActions(kind, id) {
   return `
     <div class="pop-actions">
-      <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteElement('${kind}', '${id}')" title="Eliminar (Supr)">Eliminar</button>
+      <button type="button" class="btn btn-sm btn-danger" onclick="deleteElement('${kind}', '${id}')" title="Eliminar (Supr)">Eliminar</button>
       <span class="spacer"></span>
       <button type="button" class="btn btn-sm btn-secondary" onclick="map.closePopup()">Cancelar</button>
       <button type="button" class="btn btn-sm btn-accent" data-primary onclick="save${kind === 'node' ? 'Node' : kind === 'edge' ? 'Edge' : 'Zone'}Edit('${id}')" title="Guardar (Enter)">Guardar</button>
@@ -1698,9 +1698,9 @@ function openEditPopup(type, id, latlng) {
         <select id="pop-type" class="form-select form-select-sm mb-2" data-prev="${escapeHtml(n.type)}" onchange="onPopTypeChange(this)">
           ${typeOptions}
         </select>` : ''}
-        ${isBld ? `<button type="button" class="btn btn-sm btn-outline-secondary w-100 mb-2" onclick="openBuildingEditor('${id}')">Editar interior (${n.pisos.length} ${n.pisos.length === 1 ? 'piso' : 'pisos'})</button>` : ''}
-        ${IS_BUILDING && n.type === 'waypoint' && n.building !== 'exterior' ? `<button type="button" class="btn btn-sm btn-outline-secondary w-100 mb-2" onclick="startConnectorFromNode('${id}')">Conectar a otro piso</button>` : ''}
-        <div id="pop-srv-fields" style="display:${isSrv ? 'block' : 'none'};">
+        ${isBld ? `<button type="button" class="btn btn-sm btn-secondary w-100 mb-2" onclick="openBuildingEditor('${id}')">Editar interior (${n.pisos.length} ${n.pisos.length === 1 ? 'piso' : 'pisos'})</button>` : ''}
+        ${IS_BUILDING && n.type === 'waypoint' && n.building !== 'exterior' ? `<button type="button" class="btn btn-sm btn-secondary w-100 mb-2" onclick="startConnectorFromNode('${id}')">Conectar a otro piso</button>` : ''}
+        <div id="pop-srv-fields" ${isSrv ? '' : 'hidden'}>
           <label>Ícono en la app</label>
           <input type="text" id="pop-icon" class="form-control form-control-sm mb-2" value="${escapeHtml(isSrv ? n.icon : '')}" maxlength="4">
           <label>Horario</label>
@@ -1718,7 +1718,7 @@ function openEditPopup(type, id, latlng) {
       <div class="pop-edit">
         <div class="ctx-title">Editar conexión</div>
         <label class="pop-check">
-          <input type="checkbox" id="pop-es-escalera" ${e.es_escalera ? 'checked' : ''} style="width:16px; height:16px;">
+          <input type="checkbox" id="pop-es-escalera" ${e.es_escalera ? 'checked' : ''}>
           Esta conexión es una escalera
         </label>
         ${popupActions('edge', id)}
@@ -1730,9 +1730,9 @@ function openEditPopup(type, id, latlng) {
         <div class="ctx-title">Editar ${z.tags.includes('contorno_edificio') ? 'contorno de edificio' : 'zona'}</div>
         <label>Nombre</label>
         <input type="text" id="pop-zone-name" class="form-control form-control-sm mb-2" value="${escapeHtml(z.name)}">
-        <button type="button" class="btn btn-sm btn-outline-secondary w-100" onclick="enableZoneVertexEditing('${id}')">Modificar contorno</button>
+        <button type="button" class="btn btn-sm btn-secondary w-100" onclick="enableZoneVertexEditing('${id}')">Modificar contorno</button>
         ${!IS_BUILDING && z.building && z.tags.includes('contorno_edificio') && nodes.some(x => x.id === z.building)
-          ? `<button type="button" class="btn btn-sm btn-outline-secondary w-100 mt-2" onclick="openBuildingEditor('${z.building}')">Editar interior</button>` : ''}
+          ? `<button type="button" class="btn btn-sm btn-secondary w-100 mt-2" onclick="openBuildingEditor('${z.building}')">Editar interior</button>` : ''}
         ${popupActions('zone', id)}
       </div>`;
   }
@@ -1741,7 +1741,7 @@ function openEditPopup(type, id, latlng) {
 
 // Al cambiar el tipo en el popup: mostrar u ocultar los campos de POI y proponer el ícono del nuevo tipo
 window.onPopTypeChange = function (sel) {
-  document.getElementById('pop-srv-fields').style.display = isPoiType(sel.value) ? 'block' : 'none';
+  document.getElementById('pop-srv-fields').hidden = !isPoiType(sel.value);
   const iconInp = document.getElementById('pop-icon');
   const prevDefault = SYSTEM_TYPES[sel.dataset.prev]?.icon;
   // Solo se reemplaza si estaba vacío o era el ícono por defecto del tipo anterior (respeta íconos personalizados)
@@ -2618,12 +2618,12 @@ function openConnectorPopup(n, latlng) {
       <label>Nombre (opcional)</label>
       <input id="pop-con-nombre" type="text" class="form-control form-control-sm mb-2" maxlength="255" value="${escapeHtml(c.nombre || '')}">
       <div class="panel-meta mb-2">${flight ? 'Pisos' : 'Paradas'}: ${escapeHtml(floorsWith.map(f => floorLabel(f, c.building)).join(', '))}</div>
-      ${flight && upFloor !== undefined ? `<button type="button" class="btn btn-sm btn-outline-secondary w-100 mb-2" onclick="addFlight('${c.id}', 'up')">Agregar tramo hacia ${escapeHtml(floorLabel(upFloor, c.building))}</button>` : ''}
-      ${flight && downFloor !== undefined ? `<button type="button" class="btn btn-sm btn-outline-secondary w-100 mb-2" onclick="addFlight('${c.id}', 'down')">Agregar tramo desde ${escapeHtml(floorLabel(downFloor, c.building))}</button>` : ''}
-      ${!flight && missing.length ? `<button type="button" class="btn btn-sm btn-outline-secondary w-100 mb-2" onclick="addConnectorStops('${c.id}')">Agregar parada en otro piso</button>` : ''}
+      ${flight && upFloor !== undefined ? `<button type="button" class="btn btn-sm btn-secondary w-100 mb-2" onclick="addFlight('${c.id}', 'up')">Agregar tramo hacia ${escapeHtml(floorLabel(upFloor, c.building))}</button>` : ''}
+      ${flight && downFloor !== undefined ? `<button type="button" class="btn btn-sm btn-secondary w-100 mb-2" onclick="addFlight('${c.id}', 'down')">Agregar tramo desde ${escapeHtml(floorLabel(downFloor, c.building))}</button>` : ''}
+      ${!flight && missing.length ? `<button type="button" class="btn btn-sm btn-secondary w-100 mb-2" onclick="addConnectorStops('${c.id}')">Agregar parada en otro piso</button>` : ''}
       <div class="pop-actions pop-actions-wrap">
-        <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeConnectorStop('${n.id}')" title="Quitar este punto (Supr)">Quitar ${flight ? 'punto' : 'parada'}</button>
-        <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteConnector('${c.id}')">Eliminar conector</button>
+        <button type="button" class="btn btn-sm btn-danger" onclick="removeConnectorStop('${n.id}')" title="Quitar este punto (Supr)">Quitar ${flight ? 'punto' : 'parada'}</button>
+        <button type="button" class="btn btn-sm btn-danger" onclick="deleteConnector('${c.id}')">Eliminar conector</button>
         <span class="spacer"></span>
         <button type="button" class="btn btn-sm btn-secondary" onclick="map.closePopup()">Cancelar</button>
         <button type="button" class="btn btn-sm btn-accent" data-primary onclick="saveConnectorEdit('${c.id}')">Guardar</button>
@@ -2947,7 +2947,7 @@ function renderReview() {
       row.className = 'review-row';
       const f = document.createElement('button');
       f.type = 'button';
-      f.className = 'btn btn-sm btn-outline-secondary';
+      f.className = 'btn btn-sm btn-secondary';
       f.textContent = fix.label;
       f.addEventListener('click', fix.run);
       row.append(b, f);
@@ -2977,7 +2977,7 @@ function renderReview() {
     if (issues.misplaced.length > 1) {
       const all = document.createElement('button');
       all.type = 'button';
-      all.className = 'btn btn-sm btn-outline-secondary mt-1';
+      all.className = 'btn btn-sm btn-secondary mt-1';
       all.textContent = `Mover los ${issues.misplaced.length} a su edificio`;
       all.addEventListener('click', () => moveToBuilding(issues.misplaced));
       body.appendChild(all);
@@ -3306,7 +3306,7 @@ function renderMergePanel() {
     buttons.forEach(({ label, active, onClick }) => {
       const b = document.createElement('button');
       b.type = 'button';
-      b.className = 'btn btn-sm ' + (active ? 'btn-accent' : 'btn-outline-secondary');
+      b.className = 'btn btn-sm ' + (active ? 'btn-accent' : 'btn-secondary');
       b.textContent = label;
       b.addEventListener('click', onClick);
       actions.appendChild(b);

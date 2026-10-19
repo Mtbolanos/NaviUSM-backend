@@ -3,9 +3,9 @@
 // Los cambios se envían a PATCH /admin/api/sedes/{id}/edificios, que los aplica
 // sobre la última versión publicada (409 si alguien publicó entremedio).
 // =============================================================================
-const ROOT_PATH = window.GESTION_CONFIG.rootPath;
-const sedesInfo = window.GESTION_CONFIG.sedesInfo;
-const MAP_TILES = window.MAP_TILES || {
+const ROOT_PATH = NV.site().rootPath;
+const sedesInfo = NV.page().sedesInfo;
+const MAP_TILES = NV.site().mapTiles || {
   url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
   attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors',
   max_zoom: 19,
@@ -204,7 +204,7 @@ function renderEdificio(w) {
 
   if (!isDeleted) {
     const edit = document.createElement('a');
-    edit.className = 'btn btn-sm btn-outline-secondary';
+    edit.className = 'btn btn-sm btn-secondary';
     edit.textContent = 'Editar';
     edit.title = 'Abrir el editor del interior de este edificio';
     edit.href = `${ROOT_PATH}/admin/edificios/editar?sede=${encodeURIComponent(sedeId)}&edificio=${encodeURIComponent(w.id)}`;
@@ -222,7 +222,7 @@ function renderEdificio(w) {
   if (isDeleted) {
     const restore = document.createElement('button');
     restore.type = 'button';
-    restore.className = 'btn btn-sm btn-outline-secondary';
+    restore.className = 'btn btn-sm btn-secondary';
     restore.textContent = 'Restaurar';
     restore.addEventListener('click', () => { deleted.delete(w.id); updateDirty(); renderLista(); });
     head.appendChild(restore);
@@ -268,7 +268,7 @@ function renderDetalle(w) {
   spacer.className = 'flex-grow-1';
   const delB = document.createElement('button');
   delB.type = 'button';
-  delB.className = 'btn btn-sm btn-outline-danger';
+  delB.className = 'btn btn-sm btn-danger';
   delB.textContent = 'Eliminar edificio';
   delB.addEventListener('click', () => eliminarEdificio(w));
   foot.append(spacer, delB);

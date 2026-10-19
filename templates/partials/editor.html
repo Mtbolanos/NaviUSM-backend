@@ -52,13 +52,13 @@
 
   <div class="topbar-right">
     {% if scope == 'building' %}
-    <a id="campus-link" class="btn btn-sm btn-outline-secondary" href="{{ request.scope.get('root_path', '') }}/admin?sede={{ sede_actual.id }}">Ver en el campus</a>
+    <a id="campus-link" class="btn btn-sm btn-secondary" href="{{ request.scope.get('root_path', '') }}/admin?sede={{ sede_actual.id }}">Ver en el campus</a>
     {% endif %}
-    <button class="btn-ed btn-ed-accent" onclick="publishToServer()" title="Publicar el mapa (Ctrl/Cmd + S)">Publicar mapa</button>
+    <button class="btn btn-sm btn-accent" onclick="publishToServer()" title="Publicar el mapa (Ctrl/Cmd + S)">Publicar mapa</button>
   </div>
 </div>
 
-<div class="main" style="position: relative;">
+<div class="main">
   <div id="map"></div>
 
   <!-- Estado del mapa: esquina superior derecha, cada píldora alineada a la derecha por separado -->
@@ -85,7 +85,7 @@
     <div class="panel-field">
       <span class="panel-label">Pisos</span>
       <div id="floor-list" class="floor-list" role="listbox" aria-label="Pisos del edificio"></div>
-      <button type="button" class="btn btn-sm btn-outline-secondary w-100 mt-2" onclick="openFloorsModal()" title="Agregar, renombrar o eliminar pisos (G)">Gestionar pisos</button>
+      <button type="button" class="btn btn-sm btn-secondary w-100 mt-2" onclick="openFloorsModal()" title="Agregar, renombrar o eliminar pisos (G)">Gestionar pisos</button>
     </div>
     <div class="panel-meta">Nodos en este piso: <strong id="st-nodes">0</strong></div>
     {% else %}
@@ -153,7 +153,7 @@
   <div id="connector-bar" class="map-bar" hidden>
     <span class="map-bar-title" id="connector-title">Colocando conector</span>
     <button class="btn btn-sm btn-secondary" onclick="cancelConnectorPlacement()">Cancelar</button>
-    <button class="btn btn-sm btn-outline-secondary" id="connector-skip" onclick="skipConnectorFloor()">Omitir este piso</button>
+    <button class="btn btn-sm btn-secondary" id="connector-skip" onclick="skipConnectorFloor()">Omitir este piso</button>
     <span class="map-bar-hint" id="connector-hint"></span>
   </div>
 
@@ -178,8 +178,8 @@
     </div>
     <div id="merge-summary" class="panel-meta"></div>
     <div id="merge-bulk" class="merge-bulk">
-      <button class="btn btn-sm btn-outline-secondary" onclick="chooseAllConflicts('mine')">Todo lo mío</button>
-      <button class="btn btn-sm btn-outline-secondary" onclick="chooseAllConflicts('theirs')">Todo lo publicado</button>
+      <button class="btn btn-sm btn-secondary" onclick="chooseAllConflicts('mine')">Todo lo mío</button>
+      <button class="btn btn-sm btn-secondary" onclick="chooseAllConflicts('theirs')">Todo lo publicado</button>
     </div>
     <div id="merge-body" class="review-body"></div>
     <div class="panel-actions review-actions">

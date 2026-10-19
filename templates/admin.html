@@ -3,13 +3,7 @@
 {% block content %}
 {% include "partials/editor.html" %}
 
-<script>
-  window.APP_CONFIG = {
-    rootPath: "{{ request.scope.get('root_path', '') }}",
-    sedesInfo: {{ sedes_json | tojson | safe }},
-    scope: "campus"
-  };
-</script>
-<script src="{{ url_for('static', path='js/pisos.js') }}?v=0.9.2"></script>
-<script src="{{ url_for('static', path='js/admin.js') }}?v=0.9.2"></script>
+<script type="application/json" id="page-config">{{ {"sedesInfo": sedes_json, "scope": "campus"} | tojson }}</script>
+<script src="{{ url_for('static', path='js/pisos.js') }}?v=0.9.3"></script>
+<script src="{{ url_for('static', path='js/admin.js') }}?v=0.9.3"></script>
 {% endblock %}

@@ -138,7 +138,7 @@
       if (opts.onVer && p.desde !== null) {
         const ver = document.createElement('button');
         ver.type = 'button';
-        ver.className = 'btn btn-sm btn-outline-secondary';
+        ver.className = 'btn btn-sm btn-secondary';
         ver.textContent = 'Ver en el mapa';
         ver.addEventListener('click', () => opts.onVer(p));
         verSlot.appendChild(ver);
@@ -146,7 +146,7 @@
       if (isExtreme && sorted.length > 1) {
         const del = document.createElement('button');
         del.type = 'button';
-        del.className = 'btn btn-sm btn-outline-danger';
+        del.className = 'btn btn-sm btn-danger';
         del.textContent = 'Eliminar';
         del.title = 'Solo se puede eliminar el piso superior o el inferior';
         del.addEventListener('click', () => removeFloor(model, p, counts, opts, before));
@@ -170,12 +170,12 @@
     add.className = 'floor-add';
     const up = document.createElement('button');
     up.type = 'button';
-    up.className = 'btn btn-sm btn-outline-secondary';
+    up.className = 'btn btn-sm btn-secondary';
     up.textContent = '+ Agregar piso arriba';
     up.addEventListener('click', () => { before(); addFloor(model, 'arriba'); opts.onChange(); opts.rerender(); });
     const down = document.createElement('button');
     down.type = 'button';
-    down.className = 'btn btn-sm btn-outline-secondary';
+    down.className = 'btn btn-sm btn-secondary';
     down.textContent = '+ Agregar subterráneo';
     down.addEventListener('click', () => { before(); addFloor(model, 'abajo'); opts.onChange(); opts.rerender(); });
     add.append(up, down);

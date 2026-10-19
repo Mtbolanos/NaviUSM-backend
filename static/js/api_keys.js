@@ -1,4 +1,4 @@
-const AK_ROOT = window.AK_CONFIG.rootPath;
+const AK_ROOT = NV.site().rootPath;
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -9,9 +9,9 @@ function fmtFecha(iso) {
 }
 
 function estadoKey(k) {
-  if (k.revoked_at) return '<span class="badge bg-secondary">Revocada</span>';
-  if (k.expires_at && new Date(k.expires_at) <= new Date()) return '<span class="badge bg-warning text-dark">Expirada</span>';
-  return '<span class="badge bg-success">Activa</span>';
+  if (k.revoked_at) return '<span class="nv-badge">Revocada</span>';
+  if (k.expires_at && new Date(k.expires_at) <= new Date()) return '<span class="nv-badge nv-badge-warn">Expirada</span>';
+  return '<span class="nv-badge nv-badge-ok">Activa</span>';
 }
 
 async function cargarKeys() {
@@ -21,19 +21,19 @@ async function cargarKeys() {
     if (!res.ok) throw new Error();
     const keys = await res.json();
     if (keys.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">No hay API keys creadas.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center panel-meta py-4">No hay API keys creadas.</td></tr>';
       return;
     }
     tbody.innerHTML = keys.map(k => `
       <tr>
         <td class="fw-bold">${escapeHtml(k.nombre)}</td>
-        <td style="font-family: var(--naviusm-mono);">${escapeHtml(k.prefijo)}...</td>
+        <td class="mono">${escapeHtml(k.prefijo)}...</td>
         <td>${fmtFecha(k.created_at)}</td>
         <td>${fmtFecha(k.expires_at)}</td>
         <td>${fmtFecha(k.last_used_at)}</td>
         <td>${estadoKey(k)}</td>
         <td class="text-end">${k.revoked_at ? '' :
-          `<button class="btn btn-sm btn-danger py-0 px-2" data-id="${escapeHtml(k.id)}" data-nombre="${escapeHtml(k.nombre)}" onclick="revocarKey(this)">Revocar</button>`}</td>
+          `<button class="btn btn-sm btn-danger" data-id="${escapeHtml(k.id)}" data-nombre="${escapeHtml(k.nombre)}" onclick="revocarKey(this)">Revocar</button>`}</td>
       </tr>`).join('');
   } catch (e) {
     tbody.innerHTML = '<tr><td colspan="7" class="text-center text-danger py-4">Error cargando las API keys.</td></tr>';
