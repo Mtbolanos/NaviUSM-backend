@@ -1,4 +1,10 @@
 const ROOT_PATH = window.SEDES_CONFIG.rootPath;
+// Mapa base configurable desde el servidor (MAP_TILE_URL); por defecto, OpenStreetMap
+const MAP_TILES = window.MAP_TILES || {
+  url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors',
+  max_zoom: 19,
+};
 let nsMap = null;
 let nsMarker = null;
 let currentLat = -33.036577;
@@ -7,8 +13,9 @@ let currentLng = -71.486578;
 document.getElementById('newSedeModal').addEventListener('shown.bs.modal', function () {
   if (!nsMap) {
     nsMap = L.map('ns-map', { zoomControl: true }).setView([currentLat, currentLng], 14);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 20, attribution: '&copy; OpenStreetMap'
+    // maxNativeZoom evita pedir niveles que el servidor no tiene (OSM llega a 19)
+    L.tileLayer(MAP_TILES.url, {
+      maxZoom: 20, maxNativeZoom: MAP_TILES.max_zoom, attribution: MAP_TILES.attribution
     }).addTo(nsMap);
 
     nsMarker = L.marker([currentLat, currentLng], { draggable: true }).addTo(nsMap);

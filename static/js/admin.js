@@ -8,6 +8,12 @@
 // ── Configuración ──
 const BASE_URL = window.APP_CONFIG.rootPath;
 const SEDES_INFO = window.APP_CONFIG.sedesInfo;
+// Mapa base configurable desde el servidor (MAP_TILE_URL); por defecto, OpenStreetMap
+const MAP_TILES = window.MAP_TILES || {
+  url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors',
+  max_zoom: 19,
+};
 
 // Íconos de datos: se guardan en el snapshot y los usa la app móvil
 const SYSTEM_TYPES = {
@@ -248,8 +254,9 @@ window.addEventListener('load', () => {
   // Renderizador Canvas: permite 'tolerance', que agrega margen de clic alrededor de líneas y polígonos
   map = L.map('map', { zoomControl: false, maxZoom: 22, renderer: L.canvas({ tolerance: 8 }) });
   L.control.zoom({ position: 'bottomright' }).addTo(map);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 22, maxNativeZoom: 19, attribution: '&copy; OpenStreetMap'
+  // Más allá de max_zoom no se piden mosaicos: Leaflet amplía los del último nivel disponible
+  L.tileLayer(MAP_TILES.url, {
+    maxZoom: 22, maxNativeZoom: MAP_TILES.max_zoom, attribution: MAP_TILES.attribution
   }).addTo(map);
 
   map.on('click', onMapClick);
