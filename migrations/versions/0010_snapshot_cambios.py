@@ -5,8 +5,9 @@ Agrega a ``snapshot`` dos columnas y deja en la base la comparacion entre versio
 - ``cambios`` (jsonb): que se agrego, borro o modifico respecto a la version anterior de la sede.
   Lo llena el trigger ``snapshot_cambios`` en el mismo INSERT, asi que queda en la misma
   transaccion que la version: no hay version sin sus cambios ni cambios sin su version. NULL solo
-  en la primera version de una sede (no hay con que comparar). Si la version es identica a la
-  anterior queda ``{"desde": n-1, "hasta": n}`` sin colecciones.
+  en la primera version de una sede (no hay con que comparar), o si la comparacion fallo (el trigger
+  lo deja en NULL con un WARNING y el INSERT sigue: el historial nunca frena una publicacion). Si la
+  version es identica a la anterior queda ``{"desde": n-1, "hasta": n}`` sin colecciones.
 - ``restaurada_de`` (integer): la version de origen si esta version vino de restaurar una anterior.
 
 ``diferencias_grafo(anterior, nuevo)`` compara dos payloads de publicacion:
@@ -47,7 +48,7 @@ ALTER TABLE public.snapshot
     ADD COLUMN IF NOT EXISTS cambios jsonb,
     ADD COLUMN IF NOT EXISTS restaurada_de integer;
 
-COMMENT ON COLUMN public.snapshot.cambios IS 'Diferencia con la version anterior de la sede (diferencias_grafo). La llena el trigger snapshot_cambios. NULL solo en la primera version.';
+COMMENT ON COLUMN public.snapshot.cambios IS 'Diferencia con la version anterior de la sede (diferencias_grafo). La llena el trigger snapshot_cambios. NULL en la primera version o si la comparacion fallo.';
 COMMENT ON COLUMN public.snapshot.restaurada_de IS 'Version de origen si esta version vino de restaurar una anterior; NULL si no.';
 
 CREATE OR REPLACE FUNCTION public.diferencias_grafo(anterior jsonb, nuevo jsonb) RETURNS jsonb
@@ -161,8 +162,16 @@ BEGIN
     ORDER BY version DESC
     LIMIT 1;
     IF FOUND THEN
-        NEW.cambios := jsonb_build_object('desde', previo.version, 'hasta', NEW.version)
-                       || coalesce(public.diferencias_grafo(previo.payload, NEW.payload), '{}'::jsonb);
+        BEGIN
+            NEW.cambios := jsonb_build_object('desde', previo.version, 'hasta', NEW.version)
+                           || coalesce(public.diferencias_grafo(previo.payload, NEW.payload), '{}'::jsonb);
+        EXCEPTION WHEN OTHERS THEN
+            -- El historial nunca frena una publicacion: sin comparacion, la version entra con cambios NULL.
+            -- (sin marcadores con porcentaje: psycopg2 los tomaria como parametros al migrar)
+            RAISE WARNING USING MESSAGE = 'snapshot_cambios: no se pudo comparar sede ' || NEW.sede_id
+                || ' v' || NEW.version || ' con v' || previo.version || ': ' || SQLERRM;
+            NEW.cambios := NULL;
+        END;
     END IF;
     RETURN NEW;
 END
