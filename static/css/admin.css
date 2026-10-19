@@ -1413,3 +1413,35 @@ kbd {
   width: 280px;
   max-width: 100%;
 }
+
+/* ===== Editor: combinación de cambios ===== */
+.merge-panel {
+  border-color: var(--naviusm-accent);
+}
+
+.merge-bulk {
+  display: flex;
+  gap: 6px;
+}
+
+.merge-bulk[hidden] {
+  display: none;
+}
+
+.merge-item {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--naviusm-border);
+}
+
+.merge-item-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--naviusm-text-strong);
+}
+
+.merge-item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
