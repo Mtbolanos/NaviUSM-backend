@@ -1,3 +1,4 @@
+import copy
 from uuid import UUID
 from sqlalchemy import desc, text
 from sqlalchemy.orm import Session
@@ -28,6 +29,167 @@ def create_snapshot(db: Session, sede_id, org_id, payload: dict, version: int) -
 
 class PayloadOwnershipError(ValueError):
     """El payload referencia elementos de otra organización o sede, o tiene IDs inválidos."""
+
+
+class PayloadValidationError(ValueError):
+    """El payload tiene datos inconsistentes (por ejemplo, pisos repetidos o nodos en pisos inexistentes)."""
+
+
+class VersionConflictError(Exception):
+    """Se publicó otra versión después de la que el cliente cargó: publicar ahora pisaría esos cambios."""
+
+    def __init__(self, current: int):
+        super().__init__(f"El mapa cambió: la versión publicada es la {current}")
+        self.current = current
+
+
+SNAPSHOT_FORMAT = "2.2"
+PISO_NOMBRE_MAX = 100
+PESO_POR_PISO = 15  # mismo valor que usa el editor: distancia + 15 por piso de diferencia
+
+
+def _as_int(value, what: str) -> int:
+    # bool es subclase de int en Python: se rechaza explícitamente
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise PayloadValidationError(f"{what} debe ser un número entero")
+    return value
+
+
+def normalize_buildings(payload: dict) -> None:
+    """Deja cada edificio en el formato 2.2: {id, name, acceso, pisos: [{numero, nombre}]}.
+
+    Acepta el formato anterior (min/max) y lo convierte, para snapshots antiguos y clientes con caché.
+    """
+    for b in payload.get("buildings", []):
+        if b.get("id") == "exterior":
+            continue
+        if not isinstance(b.get("pisos"), list):
+            lo = _as_int(b.get("min", 1), "El piso mínimo")
+            hi = _as_int(b.get("max", lo), "El piso máximo")
+            b["pisos"] = [{"numero": n, "nombre": None} for n in range(min(lo, hi), max(lo, hi) + 1)]
+        pisos = []
+        for p in b["pisos"]:
+            if not isinstance(p, dict):
+                raise PayloadValidationError(f"Piso inválido en el edificio {b.get('name')!r}")
+            nombre = p.get("nombre")
+            nombre = nombre.strip() if isinstance(nombre, str) and nombre.strip() else None
+            pisos.append({"numero": _as_int(p.get("numero"), "El número de piso"), "nombre": nombre})
+        b["pisos"] = sorted(pisos, key=lambda p: p["numero"])
+        if "acceso" not in b or b["acceso"] is None:
+            numeros = [p["numero"] for p in pisos]
+            b["acceso"] = 1 if 1 in numeros else (min(numeros) if numeros else 1)
+        b.pop("min", None)
+        b.pop("max", None)
+    payload.setdefault("meta", {})["version"] = SNAPSHOT_FORMAT
+
+
+def validate_buildings(payload: dict) -> None:
+    """Pisos únicos y con nombre acotado, acceso existente y nodos solo en pisos que existen."""
+    floors_by_building = {}
+    for b in payload.get("buildings", []):
+        if b.get("id") == "exterior":
+            continue
+        name = b.get("name") or "sin nombre"
+        numeros = [p["numero"] for p in b["pisos"]]
+        if not numeros:
+            raise PayloadValidationError(f"El edificio {name!r} debe tener al menos un piso")
+        if len(set(numeros)) != len(numeros):
+            raise PayloadValidationError(f"El edificio {name!r} tiene números de piso repetidos")
+        if any(p["nombre"] and len(p["nombre"]) > PISO_NOMBRE_MAX for p in b["pisos"]):
+            raise PayloadValidationError(f"Un nombre de piso del edificio {name!r} supera los {PISO_NOMBRE_MAX} caracteres")
+        if _as_int(b["acceso"], "El piso de acceso") not in numeros:
+            raise PayloadValidationError(f"El piso de acceso del edificio {name!r} no está entre sus pisos")
+        floors_by_building[str(b["id"])] = (name, set(numeros))
+
+    for n in payload.get("nodes", []):
+        bld = n.get("building")
+        if bld in (None, "exterior") or str(bld) not in floors_by_building:
+            continue
+        name, numeros = floors_by_building[str(bld)]
+        if _as_int(n.get("floor", 1), "El piso de un nodo") not in numeros:
+            raise PayloadValidationError(
+                f"El nodo {n.get('name')!r} está en el piso {n.get('floor')}, que no existe en el edificio {name!r}"
+            )
+
+
+def apply_building_changes(payload: dict, cambios: list[dict], eliminar: list[str]) -> dict:
+    """Aplica los cambios de Gestión de Edificios sobre una copia del snapshot y la devuelve.
+
+    cambios: [{id, nombre, acceso, pisos: [{numero, nombre, desde}]}], donde "desde" es el número que
+    tenía el piso antes (None si es nuevo). Un piso antiguo que no aparece como "desde" se elimina
+    junto con sus nodos y las conexiones de esos nodos. Al renumerar, los nodos se mueven con su piso.
+    """
+    data = copy.deepcopy(payload)
+    normalize_buildings(data)
+    data.setdefault("nodes", [])
+    data.setdefault("edges", [])
+    data.setdefault("zonas", [])
+    buildings = {str(b["id"]): b for b in data.get("buildings", []) if b.get("id") != "exterior"}
+
+    def drop_nodes(ids: set) -> None:
+        data["nodes"] = [n for n in data["nodes"] if n["id"] not in ids]
+        data["edges"] = [e for e in data["edges"] if e["from"] not in ids and e["to"] not in ids]
+
+    for bid in map(str, eliminar):
+        if bid not in buildings:
+            raise PayloadValidationError("Uno de los edificios a eliminar no existe en el mapa publicado")
+        drop_nodes({n["id"] for n in data["nodes"] if n["id"] == bid or n.get("building") == bid})
+        zonas = []
+        for z in data["zonas"]:
+            if z.get("building") == bid:
+                if "contorno_edificio" in (z.get("tags") or []):
+                    continue
+                z["building"] = None  # las zonas seguras del edificio se conservan, ahora en el exterior
+            zonas.append(z)
+        data["zonas"] = zonas
+        data["buildings"] = [b for b in data["buildings"] if str(b.get("id")) != bid]
+        del buildings[bid]
+
+    for c in cambios:
+        bid = str(c["id"])
+        b = buildings.get(bid)
+        if b is None:
+            raise PayloadValidationError("Uno de los edificios modificados no existe en el mapa publicado")
+        nombre = (c.get("nombre") or "").strip()
+        if not nombre:
+            raise PayloadValidationError("El nombre del edificio no puede quedar vacío")
+
+        old_numbers = {p["numero"] for p in b["pisos"]}
+        desdes = [p["desde"] for p in c["pisos"] if p.get("desde") is not None]
+        if len(set(desdes)) != len(desdes) or not set(desdes) <= old_numbers:
+            raise PayloadValidationError(f"Los cambios de pisos del edificio {nombre!r} no corresponden a sus pisos actuales")
+        mapping = {p["desde"]: p["numero"] for p in c["pisos"] if p.get("desde") is not None}
+        removed = old_numbers - set(mapping)
+
+        drop_nodes({n["id"] for n in data["nodes"] if n.get("building") == bid and n.get("floor") in removed})
+
+        old_floor = {}
+        for n in data["nodes"]:
+            if n.get("building") == bid and n.get("floor") in mapping:
+                old_floor[n["id"]] = n["floor"]
+                n["floor"] = mapping[n["floor"]]
+        if old_floor:
+            floor_now = {n["id"]: n.get("floor", 1) for n in data["nodes"]}
+            for e in data["edges"]:
+                if e["from"] not in old_floor and e["to"] not in old_floor:
+                    continue
+                before = abs(old_floor.get(e["from"], floor_now[e["from"]]) - old_floor.get(e["to"], floor_now[e["to"]]))
+                after = abs(floor_now[e["from"]] - floor_now[e["to"]])
+                e["weight"] = e.get("weight", 0) + (after - before) * PESO_POR_PISO
+
+        b["name"] = nombre
+        b["acceso"] = c["acceso"]
+        b["pisos"] = sorted(({"numero": p["numero"], "nombre": p.get("nombre")} for p in c["pisos"]), key=lambda p: p["numero"])
+        for n in data["nodes"]:
+            if n["id"] == bid:
+                n["name"] = nombre
+        for z in data["zonas"]:
+            if z.get("building") == bid and "contorno_edificio" in (z.get("tags") or []):
+                z["name"] = nombre
+
+    normalize_buildings(data)
+    validate_buildings(data)
+    return data
 
 
 def _parse_ids(items, key="id", skip=()):
@@ -72,11 +234,20 @@ def validate_payload_ownership(db: Session, sede: Sede, payload: dict, org_id) -
     if set(_parse_ids(edges, "from")) - node_set or set(_parse_ids(edges, "to")) - node_set:
         raise PayloadOwnershipError("Hay aristas que conectan nodos que no pertenecen a esta sede")
 
-def publish_graph_data(db: Session, sede: Sede, payload: dict, org_id) -> int:
+def publish_graph_data(db: Session, sede: Sede, payload: dict, org_id, base_version: int | None = None) -> int:
+    """Publica el grafo. Con base_version, rechaza la publicación si desde entonces se publicó otra versión."""
+    normalize_buildings(payload)
+    validate_buildings(payload)
     validate_payload_ownership(db, sede, payload, org_id)
+
+    # Bloquea la sede hasta el commit: dos publicaciones simultáneas no pueden leer la misma versión
+    db.execute(text("SELECT 1 FROM sede WHERE id = :sede FOR UPDATE"), {"sede": sede.id})
     # 1. Snapshot para consumo offline del móvil
     last_snap = get_latest_snapshot(db, sede.id)
-    new_version = (last_snap.version + 1) if last_snap else 1
+    current_version = last_snap.version if last_snap else 0
+    if base_version is not None and base_version != current_version:
+        raise VersionConflictError(current_version)
+    new_version = current_version + 1
     create_snapshot(db, sede.id, org_id, payload, new_version)
 
     # 2. UPSERT de Edificios
@@ -87,17 +258,26 @@ def publish_graph_data(db: Session, sede: Sede, payload: dict, org_id) -> int:
         incoming_blds.append(b["id"])
         db.execute(
             text("""
-                INSERT INTO edificio (id, sede_id, organizacion_id, nombre, piso_min, piso_max)
-                VALUES (:id, :sede, :org, :nombre, :p_min, :p_max)
+                INSERT INTO edificio (id, sede_id, organizacion_id, nombre, piso_acceso)
+                VALUES (:id, :sede, :org, :nombre, :acceso)
                 ON CONFLICT (id) DO UPDATE SET
                     nombre = EXCLUDED.nombre,
-                    piso_min = EXCLUDED.piso_min,
-                    piso_max = EXCLUDED.piso_max 
-                WHERE edificio.organizacion_id = EXCLUDED.organizacion_id 
+                    piso_acceso = EXCLUDED.piso_acceso
+                WHERE edificio.organizacion_id = EXCLUDED.organizacion_id
                 AND edificio.sede_id = EXCLUDED.sede_id
             """),
-            {"id": b["id"], "sede": sede.id, "org": org_id, "nombre": b["name"], "p_min": b["min"], "p_max": b["max"]},
+            {"id": b["id"], "sede": sede.id, "org": org_id, "nombre": b["name"], "acceso": b["acceso"]},
         )
+        # Los pisos se reemplazan completos: el snapshot es la fuente de verdad
+        db.execute(text("DELETE FROM edificio_piso WHERE edificio_id = :id"), {"id": b["id"]})
+        for p in b["pisos"]:
+            db.execute(
+                text("""
+                    INSERT INTO edificio_piso (edificio_id, organizacion_id, numero, nombre)
+                    VALUES (:id, :org, :numero, :nombre)
+                """),
+                {"id": b["id"], "org": org_id, "numero": p["numero"], "nombre": p["nombre"]},
+            )
 
     # 3. UPSERT de Nodos y POIs
     incoming_nodes = []
