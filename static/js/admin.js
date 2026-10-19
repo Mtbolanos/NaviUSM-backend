@@ -644,7 +644,13 @@ function createNodeObject(d) {
   marker.on('mouseover', () => { hover = { kind: 'node', id: node.id }; });
   marker.on('mouseout', () => { if (hover?.kind === 'node' && hover.id === node.id) hover = null; });
   marker.on('dragstart', () => pushHistory());
-  marker.on('dragend', () => { node.latlng = marker.getLatLng(); rebuildLines(); markDirty(); });
+  // Durante el arrastre las conexiones siguen al nodo; al soltar se recalcula su peso (lo usa la app para las rutas)
+  marker.on('drag', () => { node.latlng = marker.getLatLng(); updateNodeLines(node.id); });
+  marker.on('dragend', () => {
+    node.latlng = marker.getLatLng();
+    updateNodeLines(node.id, { reweigh: true });
+    markDirty();
+  });
 
   nodes.push(node);
   return node;
@@ -706,10 +712,19 @@ function createZoneObject(d) {
   return zone;
 }
 
-function rebuildLines() {
+// Peso de una conexión: distancia en metros + 15 por piso de diferencia
+function edgeWeight(f, t) {
+  return map.distance(f.latlng, t.latlng) + Math.abs(f.floor - t.floor) * 15;
+}
+
+// Redibuja (y si se pide, vuelve a pesar) solo las conexiones de un nodo
+function updateNodeLines(id, { reweigh = false } = {}) {
   edges.forEach(e => {
+    if (e.from !== id && e.to !== id) return;
     const fn = nodes.find(n => n.id === e.from), tn = nodes.find(n => n.id === e.to);
-    if (fn && tn) e.line.setLatLngs([fn.latlng, tn.latlng]);
+    if (!fn || !tn) return;
+    e.line.setLatLngs([fn.latlng, tn.latlng]);
+    if (reweigh) e.weight = edgeWeight(fn, tn);
   });
 }
 
@@ -1041,8 +1056,7 @@ function addEdgeRaw(from, to, esEscalera = stairsMode) {
   if (from === to || edgeExists(from, to)) return null;
   const f = nodes.find(n => n.id === from), t = nodes.find(n => n.id === to);
   if (!f || !t) return null;
-  const weight = map.distance(f.latlng, t.latlng) + Math.abs(f.floor - t.floor) * 15;
-  return createEdgeObject({ id: crypto.randomUUID(), from, to, weight, es_escalera: esEscalera });
+  return createEdgeObject({ id: crypto.randomUUID(), from, to, weight: edgeWeight(f, t), es_escalera: esEscalera });
 }
 
 function createEdge(from, to) {
