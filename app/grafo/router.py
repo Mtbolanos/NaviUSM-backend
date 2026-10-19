@@ -1,3 +1,5 @@
+import logging
+import time
 from uuid import UUID
 from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.exceptions import RequestValidationError
@@ -26,6 +28,11 @@ from app.validacion.topologia import validar_topologia
 from app.templating import templates
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+
+def _ms(desde: float) -> float:
+    return round((time.perf_counter() - desde) * 1000, 2)
 
 # Versión del snapshot en headers propios: Cloudflare debilita los ETag (W/) al comprimir, y estos no los toca
 VERSION_HEADER = "X-Snapshot-Version"
@@ -54,7 +61,10 @@ def _publish_version(db: Session, sede: Sede, payload: dict, org_id, base_versio
         raise HTTPException(409, CONFLICT_MSG, headers={VERSION_HEADER: str(exc.current)})
 
 
-def _publish(db: Session, sede: Sede, payload: dict, org_id, base_version: int | None) -> JSONResponse:
+def _publish(
+    db: Session, sede: Sede, payload: dict, org_id, base_version: int | None,
+    inicio: float, tiempos: dict[str, float] | None = None,
+) -> JSONResponse:
     """Publica y responde con el contrato comun del POST /publish y del PATCH /edificios.
 
     Nivel 3, modo informativo: corre despues del commit, sobre el mismo payload que se guardo,
@@ -62,9 +72,24 @@ def _publish(db: Session, sede: Sede, payload: dict, org_id, base_version: int |
     DECISION PENDIENTE (integracion 1.3.1): la respuesta es la de origin/main
     ({"message", "version"} + X-Snapshot-Version) con `estado` y `validacion` agregados encima;
     el editor solo lee `version`.
+
+    Observabilidad: cada etapa se cronometra y va en `tiempos_ms` y en el log. `publicacion` es
+    publish_graph_data completo (normalizacion y validaciones de edificios, escritura, snapshot,
+    retencion y commit).
     """
+    tiempos = dict(tiempos or {})
+    t = time.perf_counter()
     version = _publish_version(db, sede, payload, org_id, base_version)
-    resultado = PublishResultOut(message=PUBLISH_MSG, version=version, validacion=validar_topologia(payload))
+    tiempos["publicacion"] = _ms(t)
+    t = time.perf_counter()
+    validacion = validar_topologia(payload)
+    tiempos["nivel3"] = _ms(t)
+    tiempos["total"] = _ms(inicio)
+    logger.info(
+        "publicacion sede=%s version=%d nodos=%d aristas=%d tiempos_ms=%s",
+        sede.id, version, len(payload.get("nodes", [])), len(payload.get("edges", [])), tiempos,
+    )
+    resultado = PublishResultOut(message=PUBLISH_MSG, version=version, validacion=validacion, tiempos_ms=tiempos)
     return JSONResponse(resultado.model_dump(), headers={VERSION_HEADER: str(version)})
 
 
@@ -76,6 +101,7 @@ def publish_graph(
     db: Session = Depends(get_db),
     user: Usuario = Depends(get_current_user),
 ):
+    inicio = time.perf_counter()
     sede = _get_sede(db, sede_id, user)
 
     # El area de la sede no se puede validar en el modelo: depende de la sede,
@@ -93,7 +119,7 @@ def publish_graph(
     # exclude_unset preserva el payload tal como lo mando el editor: validar no
     # puede alterar el artefacto que se publica.
     publicado = payload.model_dump(by_alias=True, exclude_unset=True)
-    return _publish(db, sede, publicado, user.organizacion_id, x_base_version)
+    return _publish(db, sede, publicado, user.organizacion_id, x_base_version, inicio)
 
 
 # Cambios de Gestión de Edificios: se aplican sobre la última versión publicada y crean una nueva.
@@ -106,6 +132,7 @@ def patch_edificios(
     db: Session = Depends(get_db),
     user: Usuario = Depends(get_current_user),
 ):
+    inicio = time.perf_counter()
     sede = _get_sede(db, sede_id, user)
     snapshot = get_latest_snapshot(db, sede.id)
     if not snapshot:
@@ -120,7 +147,7 @@ def patch_edificios(
         )
     except PayloadValidationError as exc:
         raise HTTPException(422, str(exc))
-    return _publish(db, sede, payload, user.organizacion_id, cambios.base_version)
+    return _publish(db, sede, payload, user.organizacion_id, cambios.base_version, inicio)
 
 
 # Snapshot para el editor del panel: sesión de admin y solo sedes de su organización

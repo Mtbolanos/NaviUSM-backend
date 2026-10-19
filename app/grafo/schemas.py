@@ -230,6 +230,10 @@ class PublishResultOut(BaseModel):
     version: int
     estado: str = "publicado"
     validacion: ValidacionOut = Field(default_factory=ValidacionOut)
+    # Duración de cada etapa en milisegundos (publicacion, nivel3, total), medida en el router.
+    # `total` va desde que entra la solicitud al handler: no incluye leer el cuerpo ni el Nivel 2,
+    # que FastAPI corre antes de llamar al handler, ni serializar la respuesta.
+    tiempos_ms: dict[str, float] = Field(default_factory=dict)
 
 
 # --- Gestión de Edificios (PATCH) ----------------------------------------
