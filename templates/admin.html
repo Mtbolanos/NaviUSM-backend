@@ -31,7 +31,7 @@
 
   <div id="create-options" class="mode-btns" role="group" aria-label="Opciones de creación" hidden>
     <button id="btn-waypoints" class="mmode toggle" onclick="toggleWaypointMode()" aria-pressed="false"
-      title="Cada clic crea un punto de ruta, sin menú (W)">
+      title="Cada clic crea un punto de ruta conectado al anterior, sin menú (W)">
       <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
       <span>Puntos de ruta</span>
     </button>
@@ -61,6 +61,15 @@
 
   <!-- Panel flotante: lugar visible, historial, leyenda y ayuda -->
   <div id="map-panel" class="map-panel map-overlay">
+    <div class="panel-field panel-search">
+      <label class="panel-label" for="map-search">Buscar</label>
+      <div class="search-box">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="map-search" type="search" class="form-control form-control-sm" placeholder="Nodo o edificio"
+          autocomplete="off" title="Buscar nodos y edificios (/ o Ctrl/Cmd + F)" aria-controls="search-results">
+      </div>
+      <div id="search-results" class="search-results" role="listbox" hidden></div>
+    </div>
     <div class="panel-field">
       <label class="panel-label" for="building-selector">Edificio / área</label>
       <select id="building-selector" class="form-select form-select-sm" onchange="changeBuilding()">
@@ -94,6 +103,12 @@
         <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m15 14 5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/></svg>
       </button>
       <span class="panel-sep"></span>
+      <button id="btn-review" class="icon-btn" onclick="reviewOpen ? closeReview() : openReview()" title="Revisar el mapa antes de publicar (R)" aria-label="Revisar el mapa">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><path d="m3 6 1.5 1.5L7 5M3 12l1.5 1.5L7 11M3 18l1.5 1.5L7 17"/></svg>
+      </button>
+      <button id="btn-hints" class="icon-btn" onclick="toggleHints()" title="Ayudas junto al cursor (H)" aria-label="Ayudas junto al cursor" aria-pressed="true">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m4 4 6 15 2-6 6-2L4 4z"/></svg>
+      </button>
       <button id="btn-legend" class="icon-btn" onclick="toggleLegend()" title="Mostrar u ocultar la leyenda (L)" aria-label="Leyenda" aria-expanded="false">
         <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5 9-5z"/><path d="m3 13 9 5 9-5"/></svg>
       </button>
@@ -113,6 +128,30 @@
     <span class="map-bar-hint" id="draw-hint"></span>
   </div>
 
+  <!-- Barra de trazado de ruta -->
+  <div id="route-bar" class="map-bar" hidden>
+    <span class="map-bar-title">Trazando ruta</span>
+    <button class="btn btn-sm btn-accent" onclick="endRoute()">Terminar</button>
+    <span class="map-bar-hint">Clic: siguiente punto - Clic en un nodo: conectar y seguir - Clic en una conexión: dividirla y conectar - Ctrl/Cmd+Z: quitar el último - Enter o Esc: terminar</span>
+  </div>
+
+  <!-- Revisión antes de publicar -->
+  <div id="review-panel" class="review-panel map-overlay" hidden>
+    <div class="review-head">
+      <span class="map-bar-title">Revisión del mapa</span>
+      <button type="button" class="btn-close btn-close-sm" onclick="closeReview()" aria-label="Cerrar revisión"></button>
+    </div>
+    <div id="review-summary" class="panel-meta"></div>
+    <div id="review-body" class="review-body"></div>
+    <div class="panel-actions review-actions">
+      <button class="btn btn-sm btn-secondary" onclick="closeReview()">Cerrar</button>
+      <button class="btn btn-sm btn-accent" id="review-publish" onclick="publishToServer({ skipReview: true })">Publicar</button>
+    </div>
+  </div>
+
+  <!-- Ayuda junto al cursor -->
+  <div id="cursor-hint" class="cursor-hint" aria-hidden="true" hidden></div>
+
   <!-- Barra de edición de contorno -->
   <div id="vertex-bar" class="map-bar" hidden>
     <span class="map-bar-title">Editando contorno</span>
@@ -131,6 +170,7 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
       <div class="modal-body">
+        <p class="panel-meta mb-3">Los cambios sin publicar se guardan en este navegador: si cierras la página sin publicar, al volver a abrir la sede se ofrece recuperarlos.</p>
         <div class="help-grid">
           <section>
             <h6>Modos</h6>
@@ -149,8 +189,9 @@
               <dt><kbd>1</kbd> ... <kbd>5</kbd></dt><dd>En "Nodo": elegir el tipo</dd>
               <dt><kbd>0</kbd></dt><dd>En el menú: repetir lo último que creaste</dd>
               <dt><kbd>Shift</kbd> + clic</dt><dd>Repetir lo último que creaste; si tiene datos, abre su formulario</dd>
-              <dt><kbd>W</kbd></dt><dd>Activar o desactivar "Puntos de ruta": cada clic crea un punto de ruta</dd>
+              <dt><kbd>W</kbd></dt><dd>"Puntos de ruta": cada clic crea un punto conectado al anterior; clic en un nodo lo conecta y sigue desde él; <kbd>Enter</kbd> o <kbd>Esc</kbd> termina la ruta</dd>
               <dt>Clic en un nodo</dt><dd>Empieza una conexión; clic en otro nodo la termina</dd>
+              <dt>Clic en una conexión</dt><dd>La divide con un punto de ruta (si hay una ruta o conexión en curso, también lo conecta)</dd>
               <dt><kbd>E</kbd></dt><dd>Las conexiones nuevas se marcan como escalera</dd>
             </dl>
           </section>
@@ -175,7 +216,10 @@
             <dl>
               <dt><kbd>Ctrl/Cmd</kbd> + <kbd>Z</kbd></dt><dd>Deshacer cualquier cambio</dd>
               <dt><kbd>Ctrl/Cmd</kbd> + <kbd>Shift</kbd> + <kbd>Z</kbd></dt><dd>Rehacer (también <kbd>Ctrl</kbd> + <kbd>Y</kbd>)</dd>
-              <dt><kbd>Ctrl/Cmd</kbd> + <kbd>S</kbd></dt><dd>Publicar el mapa</dd>
+              <dt><kbd>Ctrl/Cmd</kbd> + <kbd>S</kbd></dt><dd>Publicar el mapa (si hay avisos, primero muestra la revisión)</dd>
+              <dt><kbd>/</kbd> o <kbd>Ctrl/Cmd</kbd> + <kbd>F</kbd></dt><dd>Buscar nodos y edificios (flechas para elegir, <kbd>Enter</kbd> para ir)</dd>
+              <dt><kbd>R</kbd></dt><dd>Revisar el mapa: puntos sin conexión, grupos desconectados y sin nombre</dd>
+              <dt><kbd>H</kbd></dt><dd>Mostrar u ocultar las ayudas junto al cursor</dd>
               <dt><kbd>L</kbd></dt><dd>Mostrar u ocultar la leyenda</dd>
               <dt><kbd>?</kbd></dt><dd>Abrir esta ayuda</dd>
             </dl>
@@ -201,5 +245,5 @@
     sedesInfo: {{ sedes_json | tojson | safe }}
   };
 </script>
-<script src="{{ url_for('static', path='js/admin.js') }}?v=0.5.3"></script>
+<script src="{{ url_for('static', path='js/admin.js') }}?v=0.6.0"></script>
 {% endblock %}
