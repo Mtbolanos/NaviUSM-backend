@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}<title>Editor de edificio - NaviUSM Studio</title>{% endblock %}
+{% block content %}
+{% include "partials/editor.html" %}
+
+<!-- Gestionar pisos (mismo componente que Gestión de Edificios) -->
+<div class="modal fade" id="floorsModal" tabindex="-1" aria-labelledby="floorsTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title fw-bold" id="floorsTitle">Pisos</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div id="floors-editor"></div>
+      </div>
+      <div class="modal-footer">
+        <span class="panel-meta me-auto">Los cambios se aplican al mapa (se pueden deshacer) y se publican con él.</span>
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-sm btn-accent" onclick="applyFloorsModal()">Aplicar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  window.APP_CONFIG = {
+    rootPath: "{{ request.scope.get('root_path', '') }}",
+    sedesInfo: {{ sedes_json | tojson | safe }},
+    scope: "building",
+    initialBuilding: {{ edificio_inicial | tojson }}
+  };
+</script>
+<script src="{{ url_for('static', path='js/pisos.js') }}?v=0.9.0"></script>
+<script src="{{ url_for('static', path='js/admin.js') }}?v=0.9.0"></script>
+{% endblock %}

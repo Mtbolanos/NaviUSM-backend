@@ -23,7 +23,7 @@ templates.env.globals["map_tiles"] = {
 def admin_panel(request: Request, db: Session = Depends(get_db), user: Usuario = Depends(get_current_user)):
     sedes = get_sedes_by_org(db, user.organizacion_id)
     sedes_data = [{"id": str(s.id), "lat": float(s.latitud), "lng": float(s.longitud), "zoom": s.zoom_defecto} for s in sedes]
-    return templates.TemplateResponse(request, "admin.html", {"user": user, "sedes": sedes, "sedes_json": sedes_data})
+    return templates.TemplateResponse(request, "admin.html", {"user": user, "sedes": sedes, "sedes_json": sedes_data, "scope": "campus"})
 
 @router.get("/admin/edificios")
 def admin_edificios(request: Request, db: Session = Depends(get_db), user: Usuario = Depends(get_current_user)):
@@ -43,7 +43,7 @@ def admin_editar_edificio(
         return RedirectResponse(f"{request.scope.get('root_path', '')}/admin/edificios", status_code=303)
     sedes_data = [{"id": str(s.id), "lat": float(s.latitud), "lng": float(s.longitud), "zoom": s.zoom_defecto} for s in sedes]
     return templates.TemplateResponse(request, "editor_edificio.html", {
-        "user": user, "sedes": sedes, "sedes_json": sedes_data, "sede_actual": actual, "edificio_inicial": edificio or "",
+        "user": user, "sedes": sedes, "sedes_json": sedes_data, "sede_actual": actual, "edificio_inicial": edificio or "", "scope": "building",
     })
 
 @router.get("/admin/sedes")

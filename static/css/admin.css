@@ -1445,3 +1445,159 @@ kbd {
   gap: 6px;
   margin-top: 4px;
 }
+
+/* ===== Editor de edificio: ubicación, pisos y conectores ===== */
+.crumbs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.crumbs a {
+  color: var(--naviusm-muted);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.crumbs a:hover {
+  color: var(--naviusm-text);
+}
+
+.crumb-sep {
+  color: var(--naviusm-muted);
+}
+
+.crumb-sede {
+  font-size: 11px;
+  color: var(--naviusm-muted);
+}
+
+.floor-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.floor-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--naviusm-text);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.floor-item:hover {
+  background: var(--naviusm-surface2);
+}
+
+.floor-item.active {
+  background: color-mix(in srgb, var(--naviusm-accent) 16%, transparent);
+  border-color: var(--naviusm-accent);
+  color: var(--naviusm-text-strong);
+  font-weight: 600;
+}
+
+.floor-tag {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--naviusm-accent);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.floor-count {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--naviusm-muted);
+}
+
+/* Nodos de contexto: más chicos y atenuados */
+.graph-node.is-context {
+  transform: scale(0.6);
+  opacity: 0.55;
+  box-shadow: none;
+}
+
+/* Parada de conector: cuadrado con la letra del tipo (E, A, R) */
+.graph-node.is-connector {
+  border-radius: 5px;
+  background: #0f766e !important;
+  border-color: #99f6e4 !important;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: inherit;
+}
+
+.legend-dot {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.legend-dot.legend-connector {
+  border-radius: 3px;
+  background: #0f766e;
+}
+
+.legend-dot.legend-context {
+  background: #2563eb;
+  opacity: 0.5;
+  transform: scale(0.8);
+}
+
+.leaflet-tooltip.ghost-label {
+  background: var(--naviusm-surface);
+  color: var(--naviusm-accent);
+  border: 1px solid var(--naviusm-accent);
+  font-size: 11px;
+  font-weight: 700;
+  box-shadow: none;
+}
+
+.connector-floors {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.pop-actions-wrap {
+  flex-wrap: wrap;
+}
+
+.review-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.review-row .review-item {
+  flex: 1;
+}
+
+.floor-add {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.floor-actions.no-ver {
+  grid-template-columns: 80px;
+}
+
+#floors-editor .floor-row {
+  grid-template-columns: 90px minmax(140px, 1fr) 90px 150px 80px;
+}
