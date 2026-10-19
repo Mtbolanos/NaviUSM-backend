@@ -7,6 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from pydantic import ValidationError
 from sqlalchemy import text
 from sqlalchemy.exc import DataError, IntegrityError
 from sqlalchemy.orm import Session
@@ -281,6 +282,48 @@ def _publish(
         tiempos_ms=cuerpo["tiempos_ms"], validacion=cuerpo["validacion"], conteos=registro.conteos(payload),
     )
     return JSONResponse(cuerpo, headers={VERSION_HEADER: str(version)})
+
+
+def restaurar_version(
+    db: Session, sede: Sede, n: int, user: Usuario, request: Request, forzar: str | None = None,
+) -> JSONResponse:
+    """Vuelve a publicar la versión `n` de la sede como una versión nueva, con restaurada_de = n.
+
+    La historia no se reescribe: queda escrito que se volvió atrás. La versión guardada pasa otra vez
+    por el Nivel 2 (el esquema pudo cambiar desde entonces) y por el mismo _publish que una publicación
+    normal: si es idéntica a la vigente responde sin_cambios, y el Nivel 3 puede bloquearla (con el
+    override de siempre). restaurada_de lo escribe el trigger de snapshot (migración 0012), leyendo la
+    marca que esta función deja en la transacción con SET LOCAL; así no se toca publish_graph_data.
+
+    La ruta HTTP y el botón del editor son de la línea de backend: esto es lo que esa ruta llama.
+    Mientras exista la retención del paso 8 de publish_graph_data, solo se alcanzan las últimas versiones.
+    """
+    inicio = time.perf_counter()
+    ctx = _contexto(request, sede, user, "restaurar")
+    guardada = db.query(Snapshot).filter(Snapshot.sede_id == sede.id, Snapshot.version == n).first()
+    if guardada is None:
+        raise HTTPException(404, "Versión no encontrada")
+    payload_guardado = guardada.payload
+
+    try:
+        modelo = PublishPayloadIn.model_validate(payload_guardado)
+        fuera = nodos_fuera_del_area(modelo, float(sede.latitud), float(sede.longitud))
+        if fuera:
+            raise ValueError(f"nodos fuera del area de la sede: {', '.join(fuera)}")
+    except (ValidationError, ValueError) as exc:
+        if isinstance(exc, ValidationError):
+            motivo = "; ".join(f"{'.'.join(map(str, e['loc']))}: {e['msg']}" for e in exc.errors()[:5])
+        else:
+            motivo = str(exc)
+        detail = f"La versión {n} no pasa la validación actual y no se puede restaurar: {motivo}"
+        db.rollback()
+        _rechazo(ctx, 422, detail, inicio, payload_guardado)
+        raise HTTPException(422, detail)
+
+    # exclude_unset, igual que el POST /publish: validar no altera el artefacto
+    payload = modelo.model_dump(by_alias=True, exclude_unset=True)
+    db.execute(text("SELECT set_config('naviusm.restaurada_de', :n, true)"), {"n": str(n)})
+    return _publish(db, sede, payload, user.organizacion_id, None, inicio, ctx=ctx, forzar=forzar)
 
 
 @router.post("/admin/api/sedes/{sede_id}/publish", response_model=PublishResultOut)

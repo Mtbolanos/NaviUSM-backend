@@ -1135,3 +1135,46 @@ COMMENT ON CONSTRAINT excl_arista_par_unico ON public.arista IS 'Nivel 1: una so
 COMMENT ON CONSTRAINT excl_nodo_coordenada_piso ON public.nodo IS 'Nivel 1: un solo nodo por coordenada y piso en cada sede. Diferida: se revisa en el COMMIT.';
 COMMENT ON CONSTRAINT chk_nodo_coordenadas_rango ON public.nodo IS 'Nivel 1: longitud entre -180 y 180, latitud entre -90 y 90.';
 COMMENT ON CONSTRAINT chk_zona_geometria_valida ON public.zona IS 'Nivel 1: la geometria de la zona es valida (ST_IsValid).';
+
+-- 0012 (Alembic): el trigger snapshot_cambios guarda restaurada_de desde SET LOCAL naviusm.restaurada_de.
+-- Mismo contenido que migrations/versions/0012_restaurada_de.py
+CREATE OR REPLACE FUNCTION public.snapshot_calcular_cambios() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+    previo record;
+    origen text;
+BEGIN
+    -- Restaurar (0012): restaurar_version marca su transaccion con SET LOCAL naviusm.restaurada_de.
+    -- Fuera de esa transaccion el valor vuelve a ser vacio. Un valor no numerico se ignora.
+    IF NEW.restaurada_de IS NULL THEN
+        origen := current_setting('naviusm.restaurada_de', true);
+        IF origen ~ '^[0-9]+$' THEN
+            NEW.restaurada_de := origen::integer;
+        END IF;
+    END IF;
+    IF NEW.cambios IS NOT NULL THEN
+        RETURN NEW;
+    END IF;
+    SELECT version, payload INTO previo
+    FROM public.snapshot
+    WHERE sede_id = NEW.sede_id AND version < NEW.version
+    ORDER BY version DESC
+    LIMIT 1;
+    IF FOUND THEN
+        BEGIN
+            NEW.cambios := jsonb_build_object('desde', previo.version, 'hasta', NEW.version)
+                           || coalesce(public.diferencias_grafo(previo.payload, NEW.payload), '{}'::jsonb);
+        EXCEPTION WHEN OTHERS THEN
+            -- El historial nunca frena una publicacion: sin comparacion, la version entra con cambios NULL.
+            -- (sin marcadores con porcentaje: psycopg2 los tomaria como parametros al migrar)
+            RAISE WARNING USING MESSAGE = 'snapshot_cambios: no se pudo comparar sede ' || NEW.sede_id
+                || ' v' || NEW.version || ' con v' || previo.version || ': ' || SQLERRM;
+            NEW.cambios := NULL;
+        END;
+    END IF;
+    RETURN NEW;
+END
+$$;
+
+COMMENT ON COLUMN public.snapshot.restaurada_de IS 'Version de origen si esta version vino de restaurar una anterior; la escribe el trigger snapshot_cambios desde SET LOCAL naviusm.restaurada_de (migracion 0012). NULL si no.';
