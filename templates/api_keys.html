@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}<title>API Keys - NaviUSM Studio</title>{% endblock %}
+{% block content %}
+
+<div class="page">
+  <div class="page-inner">
+    <div class="page-header">
+        <h3>API Keys</h3>
+    </div>
+
+    <div class="nv-card mb-4">
+        <p class="page-lead">Las API keys permiten que la app móvil lea las sedes y grafos de tu organización. La key completa se muestra <b>una sola vez</b> al crearla; guárdala en un lugar seguro.</p>
+        <form id="ak-form" class="d-flex flex-wrap gap-3 align-items-end mt-2" onsubmit="crearKey(event)">
+            <div>
+                <label class="form-label panel-label" for="ak-nombre">Nombre</label>
+                <input id="ak-nombre" type="text" class="form-control form-control-sm ak-nombre" maxlength="255" required
+                    placeholder="Ej: App móvil producción">
+            </div>
+            <div>
+                <label class="form-label panel-label" for="ak-expira">Expira (opcional)</label>
+                <input id="ak-expira" type="date" class="form-control form-control-sm">
+            </div>
+            <button type="submit" class="btn btn-sm btn-accent">Crear API key</button>
+        </form>
+    </div>
+
+    <div id="ak-nueva" class="nv-callout nv-callout-ok mb-4" hidden>
+        <div class="nv-callout-title">Copia esta key ahora: no se volverá a mostrar.</div>
+        <div class="d-flex gap-2 mt-2">
+            <input id="ak-nueva-valor" type="text" readonly class="form-control form-control-sm mono">
+            <button class="btn btn-sm btn-success" onclick="copiarKey()">Copiar</button>
+        </div>
+    </div>
+
+    <div class="nv-card">
+        <div class="table-responsive nv-table-wrap">
+            <table class="table table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>Nombre</th>
+                        <th>Prefijo</th>
+                        <th>Creada</th>
+                        <th>Expira</th>
+                        <th>Último uso</th>
+                        <th>Estado</th>
+                        <th class="text-end">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="ak-body">
+                    <tr>
+                        <td colspan="7" class="text-center panel-meta py-4">Cargando...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+  </div>
+</div>
+
+<script src="{{ asset('js/api_keys.js') }}"></script>
+{% endblock %}

@@ -32,7 +32,7 @@ def set_auth_cookie(response: Response, user_id: str):
         httponly=True,
         secure=settings.cookie_secure,
         samesite="Lax",
-        max_age=86400,
+        max_age=settings.session_max_age,
         path="/",
     )
 
@@ -42,7 +42,7 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> Usuario
     if not cookie:
         raise HTTPException(401, "Not authenticated")
     try:
-        decrypted = fernet.decrypt(cookie, ttl=86400)
+        decrypted = fernet.decrypt(cookie, ttl=settings.session_max_age)
         user_id = decrypted.decode()
         user = db.query(Usuario).filter(Usuario.id == user_id).first()
         if not user or not user.is_active:

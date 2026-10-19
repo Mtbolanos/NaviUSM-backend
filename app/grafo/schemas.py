@@ -64,12 +64,17 @@ class _PayloadBase(BaseModel):
 class BuildingIn(_PayloadBase):
     id: UuidStr
     name: str = Field(min_length=1)
-    min: int
-    max: int
+    # Formato 2.1: rango min/max. Desde el 2.2 el editor manda `pisos` y
+    # `acceso` en su lugar (static/js/admin.js, sendPublish), que pasan por
+    # extra=allow y los valida validate_buildings en app/grafo/crud.py.
+    # DECISION PENDIENTE (integracion 1.3.1): opcionales para aceptar ambos
+    # formatos sin duplicar validate_buildings.
+    min: int | None = None
+    max: int | None = None
 
     @model_validator(mode="after")
     def _rango_de_pisos_coherente(self):
-        if self.min > self.max:
+        if self.min is not None and self.max is not None and self.min > self.max:
             raise ValueError(f"edificio '{self.name}': piso minimo {self.min} mayor que el maximo {self.max}")
         return self
 
@@ -219,6 +224,30 @@ class ValidacionOut(BaseModel):
 
 
 class PublishResultOut(BaseModel):
+    # `message` viene del contrato de origin/main (1.3.1); se conserva para no
+    # cambiarle la respuesta a quien ya la consuma.
+    message: str | None = None
     version: int
     estado: str = "publicado"
     validacion: ValidacionOut = Field(default_factory=ValidacionOut)
+
+
+# --- Gestión de Edificios (PATCH) ----------------------------------------
+
+class PisoCambio(BaseModel):
+    numero: int
+    nombre: str | None = Field(None, max_length=100)
+    desde: int | None = None  # número que tenía antes; None si el piso es nuevo
+
+
+class EdificioCambio(BaseModel):
+    id: UUID
+    nombre: str = Field(min_length=1, max_length=255)
+    acceso: int
+    pisos: list[PisoCambio] = Field(min_length=1)
+
+
+class EdificiosPatch(BaseModel):
+    base_version: int  # versión cargada por la página; si ya no es la última, 409
+    edificios: list[EdificioCambio] = []
+    eliminar: list[UUID] = []

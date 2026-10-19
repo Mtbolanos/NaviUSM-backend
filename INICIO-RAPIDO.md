@@ -2,15 +2,14 @@
 
 Requisito: tener Docker y Docker Compose instalados.
 
-## 1. Clonar y elegir la rama correcta
+## 1. Clonar
 
 ```bash
 git clone <url-del-repo>
 cd NaviUSM-backend
-git checkout feature/zonas-y-salas
 ```
 
-⚠️ **Importante:** no usar `develop` por ahora. `develop` remoto quedó con la estructura vieja (archivos planos, sin `app/`) desde el revert que se hizo para la demo — todo lo nuevo (Zonas, Salas, geolocalización, Docker) vive en `feature/zonas-y-salas`.
+`main` es la versión productiva. El desarrollo se hace en ramas `feature/*` creadas desde `develop`.
 
 ## 2. Configurar variables de entorno
 
@@ -18,7 +17,12 @@ git checkout feature/zonas-y-salas
 cp .env.example .env
 ```
 
-El `.env.example` ya trae valores que funcionan out-of-the-box para desarrollo local, no hace falta tocar nada salvo que quieran su propia `SECRET_KEY`.
+Completar el `.env`. Las credenciales no traen valores por defecto, y sin ellas el proyecto no levanta:
+
+- `SECRET_KEY`: `openssl rand -base64 32 | tr '+/' '-_'`
+- `POSTGRES_PASSWORD`: `openssl rand -hex 32`
+- `ORG_NOMBRE`, `ORG_SLUG`, `ADMIN_EMAIL` y `ADMIN_PASSWORD` (mínimo 12 caracteres): la organización y el admin inicial que crea el seed.
+- `COOKIE_SECURE=false` para `http://localhost`; `true` detrás de HTTPS.
 
 ## 3. Levantar todo con Docker
 
@@ -26,31 +30,21 @@ El `.env.example` ya trae valores que funcionan out-of-the-box para desarrollo l
 docker compose up --build -d
 ```
 
-Esto levanta Postgres+PostGIS y el backend, y aplica automáticamente todo el schema (`schema_actualizado.sql`) porque el volumen de datos es nuevo.
+Esto levanta Postgres+PostGIS y el backend, y aplica automáticamente el schema (`schema_actualizado.sql`) porque el volumen de datos es nuevo.
 
-## 4. Poner el esquema al día
-
-```bash
-docker compose exec backend alembic upgrade head
-```
-
-En un clone limpio el paso anterior ya dejó el esquema completo, así que esto no cambia nada —
-pero deja la base registrada en la última revisión, que es lo que permite que los cambios de
-esquema siguientes se apliquen solos. Es idempotente: correrlo de más no hace daño.
-
-Detalle en `docs/MIGRACIONES.md`.
-
-## 5. Poblar datos de prueba
+## 4. Crear la organización y el admin inicial
 
 ```bash
-docker compose exec backend python seed.py
+docker compose run --rm backend python seed.py
 ```
 
-Crea una organización, un usuario admin y una sede de prueba, más el catálogo de características de zonas (zona segura, zona silenciosa, etc). Solo hace falta correrlo una vez — si ya existen esos datos, el script lo detecta y no duplica nada.
+Crea la organización y el admin definidos en el `.env`, más el catálogo de características de zonas. Se puede correr varias veces: si ya existen, no duplica nada ni cambia la clave del admin. Las sedes se crean desde **Gestión de Sedes** en el panel.
 
-## 6. Entrar
+Después de correrlo, borrar `ADMIN_PASSWORD` del `.env` y ejecutar `docker compose up -d`. Todo el `.env` queda como variables de entorno del contenedor backend.
 
-Abrir `http://localhost:8000/admin` — login con `admin@usm.cl` / `admin123`.
+## 5. Entrar
+
+Abrir `http://localhost:8000/admin` e iniciar sesión con el `ADMIN_EMAIL` y la `ADMIN_PASSWORD` definidos en el `.env`. El puerto se cambia con `NAVIUSM_PORT`.
 
 ## Día a día (después de la primera vez)
 
@@ -61,12 +55,7 @@ Abrir `http://localhost:8000/admin` — login con `admin@usm.cl` / `admin123`.
 
 ## Si alguien ya tiene una base con datos reales de antes (no un clone limpio)
 
-No corran `schema_actualizado.sql` completo de nuevo. Pongan la base al día con las migraciones,
-que no borran nada:
-
-```bash
-./venv/bin/alembic upgrade head
-```
+No corran `schema_actualizado.sql` completo de nuevo: apliquen las migraciones de `migraciones/` que falten, en orden (no borran datos; respaldar antes). Ver `docs/BASE-DE-DATOS.md`.
 
 Funciona sobre una base que quedó en el esquema viejo: le crea las tablas que le falten y deja
 intactos los datos existentes. Reemplaza al `psql -f migracion_zonas_salas.sql` de antes (ese
@@ -76,7 +65,8 @@ Ver también `docker/README.md` para más detalle sobre el setup de Docker.
 
 ## Más documentación
 
-- `docs/MIGRACIONES.md` — cómo versionar cambios de esquema con Alembic, y por qué `--autogenerate` está deshabilitado.
+- `docs/MIGRACIONES.md` — cómo versionar cambios de esquema con Alembic, y por qué `--autogenerate` está deshabilitado. Ojo: la cadena de Alembic (`migrations/`) todavía no incluye `migraciones/003`–`005`; por ahora el procedimiento vigente es el de `docs/BASE-DE-DATOS.md`.
 - `docs/CHANGELOG.md` — resumen de todo el trabajo de la sesión que agregó Zonas/Salas/Docker, agrupado por tema.
-- `docs/CAMBIOS-JSON-SNAPSHOT.md` — cómo cambió la forma del JSON público (nueva key `zonas`, campos nuevos en nodos tipo `servicio`).
+- `docs/CAMBIOS-JSON-SNAPSHOT.md` — cómo cambió la forma del JSON público (pisos de edificio en el formato 2.2, key `zonas`, campos de nodos tipo `servicio`).
+- `docs/BASE-DE-DATOS.md` — tablas, relaciones, qué se escribe al publicar y cómo aplicar migraciones.
 - `docs/MAPEO-REESTRUCTURACION.md` — mapa de qué archivo plano (de `origin/develop`) quedó dónde dentro del paquete `app/`, útil para reconciliar ambas ramas.
