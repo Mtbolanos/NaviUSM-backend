@@ -1394,3 +1394,14 @@ kbd {
   opacity: 0.45;
   cursor: default;
 }
+
+/* Encabezado fijo arriba al hacer scroll (título y selector de sede siempre visibles) */
+.page-header-sticky {
+  position: sticky;
+  top: -32px;                 /* compensa el padding superior de .page */
+  z-index: 5;
+  margin: -32px -24px 20px;
+  padding: 32px 24px 14px;
+  background: var(--naviusm-bg);
+  border-bottom: 1px solid transparent;
+}

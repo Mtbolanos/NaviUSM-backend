@@ -4,7 +4,7 @@
 
 <div class="page has-footer">
  <div class="page-inner">
-  <div class="page-header">
+  <div class="page-header page-header-sticky">
     <div class="d-flex align-items-center gap-3">
       <h3>Edificios de</h3>
       <select id="sede-selector" class="form-select form-select-sm" style="width: auto;" onchange="cambiarSede()" aria-label="Sede">
@@ -67,5 +67,5 @@
     sedesInfo: {{ sedes_json | tojson }}
   };
 </script>
-<script src="{{ url_for('static', path='js/gestion_edificios.js') }}?v=0.7.2"></script>
+<script src="{{ url_for('static', path='js/gestion_edificios.js') }}?v=0.7.3"></script>
 {% endblock %}
