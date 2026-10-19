@@ -79,8 +79,9 @@
     <div class="panel-field">
       <label class="panel-label" for="floor-selector">Piso</label>
       <select id="floor-selector" class="form-select form-select-sm" onchange="changeFloor()">
-        <option value="1">Nivel 1</option>
+        <option value="1">Exterior</option>
       </select>
+      <a id="manage-floors" class="panel-link" href="#" hidden>Gestionar pisos</a>
     </div>
     <div class="panel-meta">Nodos en este piso: <strong id="st-nodes">0</strong></div>
 
@@ -245,5 +246,5 @@
     sedesInfo: {{ sedes_json | tojson | safe }}
   };
 </script>
-<script src="{{ url_for('static', path='js/admin.js') }}?v=0.6.1"></script>
+<script src="{{ url_for('static', path='js/admin.js') }}?v=0.7.0"></script>
 {% endblock %}

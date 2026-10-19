@@ -48,6 +48,7 @@ let route = null;               // trazado en curso: { trail: [ids] }; el últim
 let stairsMode = false;         // Crear: las conexiones nuevas son escaleras
 let currentFloor = 1, currentBuilding = 'exterior';
 let currentSedeId = null;       // sede cargada; para revertir el selector si se cancela el cambio
+let snapshotVersion = null;     // versión publicada que se cargó; el servidor rechaza publicar sobre otra más nueva
 let hasUnsavedChanges = false;
 let cleanState = null;          // mapa serializado al cargar o publicar; si el actual es idéntico, no hay cambios
 let dirtyCheckPending = false;
@@ -112,8 +113,36 @@ function isEditableTarget(el) {
   return !!el && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName));
 }
 
-function floorLabel(i) {
-  return i === 0 ? 'Planta Baja (0)' : (i < 0 ? `Sub. ${Math.abs(i)}` : `Nivel ${i}`);
+// Nombre de un piso: "Piso N" / "Subterráneo N", más su nombre si tiene ("Piso 2 - Mezzanine").
+// En el exterior no hay pisos.
+function floorLabel(numero, buildingId) {
+  if (!buildingId || buildingId === 'exterior') return 'Exterior';
+  const base = numero < 0 ? `Subterráneo ${-numero}` : `Piso ${numero}`;
+  const piso = nodes.find(n => n.id === buildingId)?.pisos?.find(p => p.numero === numero);
+  return piso?.nombre ? `${base} - ${piso.nombre}` : base;
+}
+
+// Pisos de un edificio desde el snapshot: formato 2.2 (pisos + acceso) o el anterior (min/max)
+function pisosFromData(d) {
+  let pisos;
+  if (Array.isArray(d.pisos) && d.pisos.length) {
+    pisos = d.pisos.map(p => ({ numero: parseInt(p.numero, 10), nombre: (p.nombre || '').trim() || null }));
+  } else {
+    const lo = parseInt(d.piso_min ?? d.min ?? 1, 10), hi = parseInt(d.piso_max ?? d.max ?? lo, 10);
+    pisos = [];
+    for (let i = Math.min(lo, hi); i <= Math.max(lo, hi); i++) pisos.push({ numero: i, nombre: null });
+  }
+  pisos.sort((a, b) => a.numero - b.numero);
+  const numeros = pisos.map(p => p.numero);
+  const acceso = numeros.includes(d.acceso) ? d.acceso : (numeros.includes(1) ? 1 : numeros[0]);
+  return { pisos, acceso };
+}
+
+// Pisos válidos para un nodo del lugar indicado (el exterior tiene solo el 1)
+function floorsOf(buildingId) {
+  if (!buildingId || buildingId === 'exterior') return [1];
+  const b = nodes.find(n => n.id === buildingId);
+  return b ? b.pisos.map(p => p.numero) : [1];
 }
 
 function buildingName(id) {
@@ -524,7 +553,8 @@ function serializeState() {
   return {
     nodes: nodes.map(n => ({
       id: n.id, type: n.type, name: n.name, icon: n.icon, lat: n.latlng.lat, lng: n.latlng.lng,
-      floor: n.floor, building: n.building, piso_min: n.piso_min, piso_max: n.piso_max,
+      floor: n.floor, building: n.building,
+      pisos: n.pisos ? n.pisos.map(p => ({ ...p })) : undefined, acceso: n.acceso,
       horario: n.horario, descripcion: n.descripcion, link_derivacion: n.link_derivacion,
     })),
     edges: edges.map(e => ({ id: e.id, from: e.from, to: e.to, weight: e.weight, es_escalera: !!e.es_escalera })),
@@ -628,7 +658,7 @@ function createNodeObject(d) {
   setNodeTooltip(marker, d.name);
 
   const node = { id: d.id, type: d.type, name: d.name, icon, latlng, floor: d.floor, building: d.building || 'exterior', marker, el };
-  if (d.type === 'building') { node.piso_min = d.piso_min ?? 1; node.piso_max = d.piso_max ?? 4; }
+  if (d.type === 'building') Object.assign(node, pisosFromData(d));
   if (isPoiType(d.type)) {
     node.horario = d.horario || '';
     node.descripcion = d.descripcion || '';
@@ -1302,7 +1332,8 @@ function saveDrawing() {
       const nodeId = crypto.randomUUID();
       createNodeObject({
         id: nodeId, type: 'building', name, icon: (fields.icon || '').trim() || SYSTEM_TYPES.building.icon,
-        lat: access.lat, lng: access.lng, floor: currentFloor, building: 'exterior', piso_min: 1, piso_max: 4,
+        // El nodo del edificio está en el exterior; el edificio parte con un piso (el 1, que es el acceso)
+        lat: access.lat, lng: access.lng, floor: 1, building: 'exterior', pisos: [{ numero: 1, nombre: null }], acceso: 1,
         horario: (fields.horario || '').trim(), descripcion: (fields.descripcion || '').trim(), link_derivacion: (fields.link || '').trim(),
       });
       createZoneObject({ id: crypto.randomUUID(), building: nodeId, name, tags: [ZONE_KINDS.edificio.tag], color: ZONE_KINDS.edificio.color, geojson });
@@ -1418,10 +1449,11 @@ function openInfoPopup(type, id, latlng) {
     title = n.name;
     rows.push(['Tipo', NODE_TYPE_LABELS[n.type] || n.type]);
     if (n.type === 'building') {
-      rows.push(['Pisos', `${floorLabel(n.piso_min || 1)} a ${floorLabel(n.piso_max || 4)}`]);
+      rows.push(['Pisos', [...n.pisos].reverse().map(p => floorLabel(p.numero, n.id)).join(', ')]);
+      rows.push(['Acceso', floorLabel(n.acceso, n.id)]);
     } else {
       rows.push(['Edificio', buildingName(n.building)]);
-      rows.push(['Piso', floorLabel(n.floor)]);
+      if (n.building !== 'exterior') rows.push(['Piso', floorLabel(n.floor, n.building)]);
     }
     if (isPoiType(n.type) && n.type !== 'building') {
       rows.push(['Horario', n.horario]);
@@ -1434,8 +1466,8 @@ function openInfoPopup(type, id, latlng) {
     const fn = nodes.find(x => x.id === e.from), tn = nodes.find(x => x.id === e.to);
     if (!fn || !tn) return;
     title = 'Conexión';
-    rows.push(['Desde', `${fn.name} (${floorLabel(fn.floor)})`]);
-    rows.push(['Hasta', `${tn.name} (${floorLabel(tn.floor)})`]);
+    rows.push(['Desde', `${fn.name} (${floorLabel(fn.floor, fn.building)})`]);
+    rows.push(['Hasta', `${tn.name} (${floorLabel(tn.floor, tn.building)})`]);
     rows.push(['Tipo', e.es_escalera ? 'Escalera' : 'Normal']);
     rows.push(['Distancia', `${Math.round(map.distance(fn.latlng, tn.latlng))} m`]);
   } else if (type === 'zone') {
@@ -1495,6 +1527,7 @@ function openEditPopup(type, id, latlng) {
           <option value="exterior" ${n.building === 'exterior' ? 'selected' : ''}>Campus (exterior)</option>
           ${bOptions}
         </select>` : ''}
+        ${isBld ? `<a class="pop-link" href="${BASE_URL}/admin/edificios?sede=${encodeURIComponent(currentSedeId || '')}&edificio=${encodeURIComponent(n.id)}">Gestionar pisos (${n.pisos.length})</a>` : ''}
         <div id="pop-srv-fields" style="display:${isSrv ? 'block' : 'none'};">
           <label>Ícono en la app</label>
           <input type="text" id="pop-icon" class="form-control form-control-sm mb-2" value="${escapeHtml(isSrv ? n.icon : '')}" maxlength="4">
@@ -1576,7 +1609,15 @@ window.saveNodeEdit = async function (id) {
 
   commit(() => {
     n.name = form.name;
-    if (n.type !== 'building' && form.building !== undefined) n.building = form.building;
+    if (n.type !== 'building' && form.building !== undefined && form.building !== n.building) {
+      n.building = form.building;
+      // Si el piso no existe en el lugar nuevo, pasa al piso de acceso (o al exterior)
+      const floors = floorsOf(n.building);
+      if (!floors.includes(n.floor)) {
+        n.floor = n.building === 'exterior' ? 1 : nodes.find(b => b.id === n.building).acceso;
+        setTimeout(() => setStatus(`El nodo pasó a ${floorLabel(n.floor, n.building)}`, 'ok'), 0);
+      }
+    }
     if (form.type !== n.type) setNodeType(n, form.type);
     if (isPoi) {
       n.icon = form.icon || SYSTEM_TYPES[n.type]?.icon || '';
@@ -1650,22 +1691,24 @@ function changeBuilding() {
   changeFloor();
 }
 
+// Pisos reales del edificio, de arriba hacia abajo; en el exterior, solo "Exterior"
 function updateFloorSelector() {
   const floorSel = document.getElementById('floor-selector');
   floorSel.innerHTML = '';
-  let min = 1, max = 1;
-  if (currentBuilding !== 'exterior') {
-    const b = nodes.find(n => n.id === currentBuilding);
-    if (b) { min = b.piso_min || 1; max = b.piso_max || 4; }
-  }
-  for (let i = min; i <= max; i++) {
+  const b = currentBuilding !== 'exterior' ? nodes.find(n => n.id === currentBuilding) : null;
+  const numeros = b ? b.pisos.map(p => p.numero).reverse() : [1];
+  numeros.forEach(numero => {
     const opt = document.createElement('option');
-    opt.value = i;
-    opt.textContent = floorLabel(i);
+    opt.value = numero;
+    opt.textContent = floorLabel(numero, currentBuilding);
     floorSel.appendChild(opt);
-  }
-  if (currentFloor < min || currentFloor > max) currentFloor = min;
+  });
+  if (!numeros.includes(currentFloor)) currentFloor = b ? b.acceso : 1;
   floorSel.value = currentFloor;
+  floorSel.disabled = !b;
+  const link = document.getElementById('manage-floors');
+  link.hidden = !b;
+  if (b) link.href = `${BASE_URL}/admin/edificios?sede=${encodeURIComponent(currentSedeId || '')}&edificio=${encodeURIComponent(b.id)}`;
 }
 
 function changeFloor() {
@@ -1803,7 +1846,7 @@ function renderSearchResults() {
     const meta = document.createElement('small');
     meta.textContent = n.type === 'building'
       ? 'Edificio'
-      : `${NODE_TYPE_LABELS[n.type] || n.type} - ${buildingName(n.building)} - ${floorLabel(n.floor)}`;
+      : `${NODE_TYPE_LABELS[n.type] || n.type} - ${buildingName(n.building)}${n.building === 'exterior' ? '' : ' - ' + floorLabel(n.floor, n.building)}`;
     b.append(title, meta);
     // mousedown: ocurre antes del blur del campo, que esconde la lista
     b.addEventListener('mousedown', (ev) => { ev.preventDefault(); chooseSearchResult(n); });
@@ -1867,7 +1910,9 @@ function renderReview() {
     : 'Sin avisos. El mapa está listo para publicar.';
   document.getElementById('review-publish').textContent = issues.total ? 'Publicar de todos modos' : 'Publicar';
 
-  const nodeLabel = (n) => `${n.name || 'Sin nombre'} - ${n.type === 'building' ? 'Edificio' : floorLabel(n.floor)}`;
+  const placeLabel = (n) => n.type === 'building' ? 'Edificio'
+    : (n.building === 'exterior' ? 'Exterior' : `${buildingName(n.building)}, ${floorLabel(n.floor, n.building)}`);
+  const nodeLabel = (n) => `${n.name || 'Sin nombre'} - ${placeLabel(n)}`;
   const section = (title, help, items) => {
     if (!items.length) return;
     const h = document.createElement('div');
@@ -1894,7 +1939,7 @@ function renderReview() {
       return { label: `Grupo de ${ids.length} puntos${named ? ` (incluye ${named.name})` : ''}`, ids };
     }));
   section('Sin nombre', 'En la app se mostrarían con un nombre automático.',
-    issues.unnamed.map(n => ({ label: `${NODE_TYPE_LABELS[n.type] || n.type} - ${n.type === 'building' ? 'Edificio' : floorLabel(n.floor)}`, ids: [n.id] })));
+    issues.unnamed.map(n => ({ label: `${NODE_TYPE_LABELS[n.type] || n.type} - ${placeLabel(n)}`, ids: [n.id] })));
 }
 
 // =============================================================================
@@ -1979,6 +2024,7 @@ async function loadFromServer() {
 
   try {
     const res = await fetch(BASE_URL + `/admin/api/sedes/${sedeId}/snapshot`);
+    snapshotVersion = res.headers.has('X-Snapshot-Version') ? parseInt(res.headers.get('X-Snapshot-Version'), 10) : null;
     if (res.status === 404) {
       hardClearMap();
       markClean();
@@ -2044,8 +2090,7 @@ function loadGraph(data) {
       ...n, id,
       building: n.building && idMap[n.building] ? idMap[n.building] : (n.building || 'exterior'),
       floor: parseInt(n.floor, 10) || 1,
-      piso_min: bData ? bData.min : undefined,
-      piso_max: bData ? bData.max : undefined,
+      ...(bData ? pisosFromData(bData) : {}),
     };
   });
   const stateEdges = (data.edges || []).map(e => ({
@@ -2092,8 +2137,8 @@ async function publishToServer({ skipReview = false } = {}) {
 
     setStatus('Publicando...', 'warn', { sticky: true });
     const payload = {
-      meta: { campus: sedeId, version: '2.1' },
-      buildings: nodes.filter(n => n.type === 'building').map(n => ({ id: n.id, name: n.name, min: n.piso_min || 1, max: n.piso_max || 4 })),
+      meta: { campus: sedeId, version: '2.2' },
+      buildings: nodes.filter(n => n.type === 'building').map(n => ({ id: n.id, name: n.name, acceso: n.acceso, pisos: n.pisos.map(p => ({ ...p })) })),
       nodes: nodes.map(n => ({
         id: n.id, type: n.type, name: n.name, icon: n.icon, lat: n.latlng.lat, lng: n.latlng.lng, floor: parseInt(n.floor, 10), building: n.building,
         ...(isPoiType(n.type) ? { horario: n.horario, descripcion: n.descripcion, link_derivacion: n.link_derivacion } : {})
@@ -2103,12 +2148,19 @@ async function publishToServer({ skipReview = false } = {}) {
     };
 
     try {
-      const res = await fetch(BASE_URL + `/admin/api/sedes/${sedeId}/publish`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+      const headers = { 'Content-Type': 'application/json' };
+      if (snapshotVersion !== null) headers['X-Base-Version'] = String(snapshotVersion);
+      const res = await fetch(BASE_URL + `/admin/api/sedes/${sedeId}/publish`, { method: 'POST', headers, body: JSON.stringify(payload) });
+      if (res.status === 409 || res.status === 422) {
+        const detail = (await res.json().catch(() => ({}))).detail || '';
+        setStatus(res.status === 409 ? 'El mapa cambió: no se publicó' : 'Datos inválidos: no se publicó', 'err');
+        await window.uiAlert(res.status === 409
+          ? `${detail}.\nTus cambios siguen guardados en este navegador. Recarga la sede para ver la versión actual; al abrirla podrás recuperar tus cambios desde el borrador (reemplazarán a los publicados).`
+          : `${detail}.`, 'No se publicó');
+        return;
+      }
       if (!res.ok) throw new Error();
+      snapshotVersion = (await res.json()).version;
       markClean();
       clearDraft(sedeId);
       originalNodes = new Set(currentNodes);

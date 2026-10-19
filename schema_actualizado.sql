@@ -74,8 +74,19 @@ CREATE TABLE public.edificio (
     sede_id uuid NOT NULL,
     organizacion_id uuid NOT NULL,
     nombre character varying(255) NOT NULL,
-    piso_min integer DEFAULT 1 NOT NULL,
-    piso_max integer DEFAULT 1 NOT NULL
+    piso_acceso integer DEFAULT 1 NOT NULL
+);
+
+
+--
+-- Name: edificio_piso; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.edificio_piso (
+    edificio_id uuid NOT NULL,
+    organizacion_id uuid NOT NULL,
+    numero integer NOT NULL,
+    nombre character varying(100)
 );
 
 
@@ -165,19 +176,6 @@ CREATE TABLE public.ruta_evacuacion_arista (
     ruta_evacuacion_id uuid NOT NULL,
     arista_id uuid NOT NULL,
     orden integer NOT NULL
-);
-
-
---
--- Name: sala; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.sala (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    edificio_id uuid NOT NULL,
-    organizacion_id uuid NOT NULL,
-    piso integer NOT NULL,
-    nombre character varying(255) NOT NULL
 );
 
 
@@ -291,6 +289,14 @@ ALTER TABLE ONLY public.edificio
 
 
 --
+-- Name: edificio_piso edificio_piso_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.edificio_piso
+    ADD CONSTRAINT edificio_piso_pkey PRIMARY KEY (edificio_id, numero);
+
+
+--
 -- Name: nodo nodo_gid_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -352,14 +358,6 @@ ALTER TABLE ONLY public.ruta_evacuacion_arista
 
 ALTER TABLE ONLY public.ruta_evacuacion
     ADD CONSTRAINT ruta_evacuacion_pkey PRIMARY KEY (id);
-
-
---
--- Name: sala sala_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.sala
-    ADD CONSTRAINT sala_pkey PRIMARY KEY (id);
 
 
 --
@@ -474,13 +472,6 @@ CREATE INDEX idx_ruta_evacuacion_sede ON public.ruta_evacuacion USING btree (sed
 
 
 --
--- Name: idx_sala_edificio_piso; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_sala_edificio_piso ON public.sala USING btree (edificio_id, piso);
-
-
---
 -- Name: idx_sede_organizacion; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -559,6 +550,22 @@ ALTER TABLE ONLY public.arista
 
 ALTER TABLE ONLY public.edificio
     ADD CONSTRAINT edificio_organizacion_id_fkey FOREIGN KEY (organizacion_id) REFERENCES public.organizacion(id) ON DELETE CASCADE;
+
+
+--
+-- Name: edificio_piso edificio_piso_edificio_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.edificio_piso
+    ADD CONSTRAINT edificio_piso_edificio_id_fkey FOREIGN KEY (edificio_id) REFERENCES public.edificio(id) ON DELETE CASCADE;
+
+
+--
+-- Name: edificio_piso edificio_piso_organizacion_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.edificio_piso
+    ADD CONSTRAINT edificio_piso_organizacion_id_fkey FOREIGN KEY (organizacion_id) REFERENCES public.organizacion(id) ON DELETE CASCADE;
 
 
 --
@@ -642,22 +649,6 @@ ALTER TABLE ONLY public.ruta_evacuacion
 
 
 --
--- Name: sala sala_edificio_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.sala
-    ADD CONSTRAINT sala_edificio_id_fkey FOREIGN KEY (edificio_id) REFERENCES public.edificio(id) ON DELETE CASCADE;
-
-
---
--- Name: sala sala_organizacion_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.sala
-    ADD CONSTRAINT sala_organizacion_id_fkey FOREIGN KEY (organizacion_id) REFERENCES public.organizacion(id) ON DELETE CASCADE;
-
-
---
 -- Name: sede sede_organizacion_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -736,6 +727,12 @@ ALTER TABLE ONLY public.zona
 ALTER TABLE public.arista ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: edificio_piso; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.edificio_piso ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: nodo; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -752,12 +749,6 @@ ALTER TABLE public.poi ENABLE ROW LEVEL SECURITY;
 --
 
 ALTER TABLE public.ruta_evacuacion ENABLE ROW LEVEL SECURITY;
-
---
--- Name: sala; Type: ROW SECURITY; Schema: public; Owner: -
---
-
-ALTER TABLE public.sala ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: sede; Type: ROW SECURITY; Schema: public; Owner: -
@@ -809,3 +800,6 @@ CREATE TABLE IF NOT EXISTS public.api_key (
 );
 
 CREATE INDEX IF NOT EXISTS idx_api_key_organizacion ON public.api_key USING btree (organizacion_id);
+
+-- 003: pisos de edificio (edificio_piso, edificio.piso_acceso) y eliminación de sala
+-- Ya incluido arriba para instalaciones nuevas. En bases existentes aplicar migraciones/003_edificio_pisos.sql

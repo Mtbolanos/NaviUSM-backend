@@ -1179,3 +1179,177 @@ kbd {
 .cursor-hint[hidden] {
   display: none;
 }
+
+/* ===== Enlaces a Gestión de Edificios (panel y popup) ===== */
+.panel-link,
+.pop-link {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--naviusm-blue);
+  text-decoration: none;
+}
+
+.pop-link {
+  margin: 0 0 10px;
+}
+
+.panel-link:hover,
+.pop-link:hover {
+  text-decoration: underline;
+}
+
+.panel-link[hidden] {
+  display: none;
+}
+
+/* ===== Gestión de Edificios ===== */
+.bld-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.bld-toolbar .search-box {
+  width: 280px;
+  max-width: 100%;
+}
+
+.bld-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bld-item {
+  border: 1px solid var(--naviusm-border);
+  border-radius: var(--radius);
+  background: var(--naviusm-surface2);
+}
+
+.bld-item.deleted {
+  opacity: 0.6;
+}
+
+.bld-item.deleted .bld-name {
+  text-decoration: line-through;
+}
+
+.bld-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 10px;
+}
+
+.bld-toggle {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: none;
+  background: transparent;
+  color: var(--naviusm-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.bld-toggle:disabled {
+  cursor: default;
+}
+
+.bld-chevron {
+  transition: transform 0.15s;
+  color: var(--naviusm-muted);
+}
+
+.bld-item.open .bld-chevron {
+  transform: rotate(90deg);
+}
+
+.bld-name {
+  font-weight: 700;
+  color: var(--naviusm-text-strong);
+}
+
+.bld-meta {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--naviusm-muted);
+}
+
+.bld-body {
+  padding: 4px 14px 14px;
+  border-top: 1px solid var(--naviusm-border);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.bld-field {
+  max-width: 360px;
+  padding-top: 10px;
+}
+
+.floor-table {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.floor-row {
+  display: grid;
+  grid-template-columns: 90px minmax(140px, 1fr) 90px 150px 210px;
+  align-items: center;
+  gap: 10px;
+}
+
+.floor-header {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--naviusm-muted);
+}
+
+.floor-acceso {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--naviusm-accent);
+  cursor: pointer;
+}
+
+.floor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.bld-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-top: 8px;
+  border-top: 1px solid var(--naviusm-border);
+}
+
+.piso-map {
+  height: 420px;
+  width: 100%;
+  background: var(--naviusm-bg);
+}
+
+@media (max-width: 760px) {
+  .floor-row {
+    grid-template-columns: 70px 1fr;
+  }
+  .floor-header {
+    display: none;
+  }
+}

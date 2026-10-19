@@ -69,20 +69,19 @@ class Edificio(Base):
     sede_id = Column(UUID(as_uuid=True), ForeignKey("sede.id", ondelete="CASCADE"), nullable=False)
     organizacion_id = Column(UUID(as_uuid=True), ForeignKey("organizacion.id", ondelete="CASCADE"), nullable=False)
     nombre = Column(String(255), nullable=False)
-    piso_min = Column(Integer, nullable=False, default=1)
-    piso_max = Column(Integer, nullable=False, default=1)
+    piso_acceso = Column(Integer, nullable=False, default=1)  # piso a nivel de la calle
 
     sede = relationship("Sede", back_populates="edificios")
+    pisos = relationship("EdificioPiso", order_by="EdificioPiso.numero", cascade="all, delete-orphan", passive_deletes=True)
 
 
-class Sala(Base):
-    __tablename__ = "sala"
+class EdificioPiso(Base):
+    __tablename__ = "edificio_piso"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
-    edificio_id = Column(UUID(as_uuid=True), ForeignKey("edificio.id", ondelete="CASCADE"), nullable=False)
+    edificio_id = Column(UUID(as_uuid=True), ForeignKey("edificio.id", ondelete="CASCADE"), primary_key=True)
     organizacion_id = Column(UUID(as_uuid=True), ForeignKey("organizacion.id", ondelete="CASCADE"), nullable=False)
-    piso = Column(Integer, nullable=False)
-    nombre = Column(String(255), nullable=False)
+    numero = Column(Integer, primary_key=True)
+    nombre = Column(String(100))  # opcional; sin nombre se muestra "Piso N" / "Subterráneo N"
 
 class ApiKey(Base):
     __tablename__ = "api_key"

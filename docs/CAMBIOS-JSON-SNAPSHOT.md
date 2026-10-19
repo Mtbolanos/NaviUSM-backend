@@ -1,3 +1,51 @@
+# Cambios al JSON del snapshot
+
+## Formato 2.2: pisos de edificio (`meta.version = "2.2"`)
+
+_2026-10_
+
+El snapshot se obtiene con `GET /api/v1/mobile/sedes/{sede_id}/snapshot` (app móvil, con token de sesión) y es el
+mismo JSON que publica el editor. Desde esta versión el servidor normaliza los edificios antes de guardarlo, así que
+todo snapshot publicado de aquí en adelante viene en este formato.
+
+### `buildings[]`: `min`/`max` se reemplazan por `acceso` y `pisos`
+
+Antes:
+
+```json
+{ "id": "c1a2...", "name": "Edificio A", "min": 1, "max": 4 }
+```
+
+Ahora:
+
+```json
+{
+  "id": "c1a2...",
+  "name": "Edificio A",
+  "acceso": 1,
+  "pisos": [
+    { "numero": -1, "nombre": null },
+    { "numero": 1, "nombre": null },
+    { "numero": 2, "nombre": "Mezzanine" }
+  ]
+}
+```
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `acceso` | int | Piso a nivel de la calle (en Chile, normalmente el 1). Siempre es uno de los números de `pisos`. |
+| `pisos` | array | Ordenado de menor a mayor. Al menos un piso. Números enteros únicos; negativos = subterráneos; puede haber huecos y el 0 es posible. |
+| `pisos[].numero` | int | El mismo valor que usan los nodos en `floor`. |
+| `pisos[].nombre` | string \| `null` | Nombre opcional. Si es `null`, mostrar "Piso N" o "Subterráneo N". |
+
+- `min` y `max` ya no vienen. Un consumidor que los necesite puede calcularlos con el primer y el último `numero`.
+- Garantía: todo nodo con `building` distinto de `"exterior"` tiene `floor` igual a uno de los `pisos` de su edificio
+  (el publish rechaza lo contrario).
+- `nodes`, `edges` y `zonas` no cambian.
+- El nodo `type: "building"` (punto de acceso del edificio) sigue en el exterior: `building: "exterior"`, `floor: 1`.
+
+---
+
 # Cambios al JSON del snapshot (zonas + POIs de servicio)
 
 _2026-09-02_
