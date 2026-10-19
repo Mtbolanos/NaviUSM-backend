@@ -23,11 +23,14 @@ Login: el `ADMIN_EMAIL` y la `ADMIN_PASSWORD` del `.env`, en `http://localhost:8
 
 ## Actualizar una base ya existente (no una nueva)
 
-Si ya tienes una base corriendo (por ejemplo en un servidor) de antes de esta sesión, no vuelvas a aplicar `schema_actualizado.sql` completo — usa `migracion_zonas_salas.sql` (raíz del repo), que agrega solo lo nuevo (tablas `sala`/`zona`/`caracteristica`/`zona_caracteristica` y columnas de `poi`) sin tocar tus datos:
+Si ya tienes una base corriendo (por ejemplo en un servidor), no vuelvas a aplicar `schema_actualizado.sql` completo: aplica solo las migraciones que falten, en orden, desde la carpeta `migraciones/` (respaldar antes). El detalle de cada una está en `docs/BASE-DE-DATOS.md`.
 
 ```bash
-psql -U <usuario> -d <base> -f migracion_zonas_salas.sql
+docker compose exec -T db pg_dump -U naviusm -d naviusm -Fc > respaldo.dump
+docker compose exec -T db psql -U naviusm -d naviusm -v ON_ERROR_STOP=1 < migraciones/003_edificio_pisos.sql
 ```
+
+`migracion_zonas_salas.sql` (raíz del repo) es histórica: solo sirve para bases anteriores a las zonas.
 
 ## Notas
 

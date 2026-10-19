@@ -55,16 +55,13 @@ Abrir `http://localhost:8000/admin` e iniciar sesión con el `ADMIN_EMAIL` y la 
 
 ## Si alguien ya tiene una base con datos reales de antes (no un clone limpio)
 
-No corran `schema_actualizado.sql` completo de nuevo — usen el script incremental que no borra nada:
-
-```bash
-psql -U <usuario> -d <base> -f migracion_zonas_salas.sql
-```
+No corran `schema_actualizado.sql` completo de nuevo: apliquen las migraciones de `migraciones/` que falten, en orden (no borran datos; respaldar antes). Ver `docs/BASE-DE-DATOS.md`.
 
 Ver también `docker/README.md` para más detalle sobre el setup de Docker.
 
 ## Más documentación
 
 - `docs/CHANGELOG.md` — resumen de todo el trabajo de la sesión que agregó Zonas/Salas/Docker, agrupado por tema.
-- `docs/CAMBIOS-JSON-SNAPSHOT.md` — cómo cambió la forma del JSON público (nueva key `zonas`, campos nuevos en nodos tipo `servicio`).
+- `docs/CAMBIOS-JSON-SNAPSHOT.md` — cómo cambió la forma del JSON público (pisos de edificio en el formato 2.2, key `zonas`, campos de nodos tipo `servicio`).
+- `docs/BASE-DE-DATOS.md` — tablas, relaciones, qué se escribe al publicar y cómo aplicar migraciones.
 - `docs/MAPEO-REESTRUCTURACION.md` — mapa de qué archivo plano (de `origin/develop`) quedó dónde dentro del paquete `app/`, útil para reconciliar ambas ramas.
