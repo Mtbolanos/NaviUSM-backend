@@ -14,7 +14,8 @@ class ContornoInvalido(ValueError):
 
 
 def get_sedes_by_org(db: Session, org_id):
-    return db.query(Sede).filter(Sede.organizacion_id == org_id).all()
+    # Orden estable (por creación): sin ORDER BY, Postgres devuelve al final la fila recién actualizada
+    return db.query(Sede).filter(Sede.organizacion_id == org_id).order_by(Sede.created_at, Sede.id).all()
 
 
 def contornos_by_org(db: Session, org_id) -> dict[str, list]:

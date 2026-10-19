@@ -436,8 +436,8 @@ function verPiso(w, p) {
 
 function dibujarPiso(bid, nodos) {
   if (!pisoMap) {
-    pisoMap = L.map('piso-map', { zoomControl: true, maxZoom: 22 });
-    NV.baseLayer(pisoMap, { maxZoom: 22 });
+    pisoMap = L.map('piso-map', { zoomControl: true, maxZoom: NV.mapMaxZoom() });
+    NV.baseLayer(pisoMap);
   }
   pisoMap.invalidateSize();
   if (pisoLayer) pisoLayer.remove();

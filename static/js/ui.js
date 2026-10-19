@@ -45,6 +45,7 @@
     site: () => readJson('site-config'),
     page: () => readJson('page-config'),
     baseLayer,
+    mapMaxZoom,
   };
 
   // ----- Mapa base -----
@@ -89,10 +90,32 @@
     return maplibrePromise;
   }
 
-  // Agrega el mapa base a un mapa Leaflet. maxZoom: zoom máximo del mapa (el raster se amplía sobre max_zoom)
-  function baseLayer(map, { maxZoom = 22 } = {}) {
-    const t = { ...DEFAULT_TILES, ...(readJson('site-config').mapTiles || {}) };
-    const addRaster = () => L.tileLayer(t.url, { maxZoom, maxNativeZoom: t.max_zoom, attribution: t.attribution }).addTo(map);
+  // Zoom máximo de los mapas: el vectorial se dibuja nítido hasta 24; el raster amplía su último nivel
+  // (más allá de 22 se ve demasiado pixelado)
+  const VECTOR_MAX_ZOOM = 24;
+  const RASTER_MAX_ZOOM = 22;
+  function tilesConfig() {
+    return { ...DEFAULT_TILES, ...(readJson('site-config').mapTiles || {}) };
+  }
+  function mapMaxZoom() {
+    return tilesConfig().style_url ? VECTOR_MAX_ZOOM : RASTER_MAX_ZOOM;
+  }
+
+  // Edificios planos: los estilos con edificios 3D (fill-extrusion) quedan con altura 0
+  function flattenBuildings(gl) {
+    (gl.getStyle()?.layers || []).filter(l => l.type === 'fill-extrusion').forEach(l => {
+      gl.setPaintProperty(l.id, 'fill-extrusion-height', 0);
+      gl.setPaintProperty(l.id, 'fill-extrusion-base', 0);
+    });
+  }
+
+  // Agrega el mapa base a un mapa Leaflet creado con maxZoom: NV.mapMaxZoom()
+  function baseLayer(map) {
+    const t = tilesConfig();
+    const addRaster = () => {
+      if (map.getMaxZoom() > RASTER_MAX_ZOOM) map.setMaxZoom(RASTER_MAX_ZOOM);
+      return L.tileLayer(t.url, { maxZoom: RASTER_MAX_ZOOM, maxNativeZoom: t.max_zoom, attribution: t.attribution }).addTo(map);
+    };
     if (!t.style_url) return addRaster();
     let fellBack = false;
     const fallback = (err, layer) => {
@@ -105,12 +128,13 @@
     loadMaplibre().then(() => {
       const layer = L.maplibreGL({
         style: t.style_url,
+        maxZoom: VECTOR_MAX_ZOOM,
         attributionControl: { customAttribution: t.style_attribution || '' },
       });
       layer.addTo(map);
       const gl = layer.getMaplibreMap();
       let loaded = false;
-      gl.once('load', () => { loaded = true; });
+      gl.once('load', () => { loaded = true; flattenBuildings(gl); });
       // Si el estilo no carga (servidor caído, URL inválida), se vuelve al raster
       gl.on('error', (e) => { if (!loaded) fallback(e && e.error, layer); });
     }).catch((err) => fallback(err));

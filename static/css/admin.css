@@ -2094,7 +2094,7 @@ label.panel-label {
 .ns-hint {
   position: absolute;
   left: 50%;
-  bottom: 12px;
+  bottom: 30px;
   transform: translateX(-50%);
   z-index: 1000;
   max-width: calc(100% - 24px);
@@ -2113,12 +2113,31 @@ label.panel-label {
   display: none;
 }
 
+/* La ventana usa el ancho disponible (Bootstrap la deja en 500px bajo 992px) y el formulario se acomoda
+   según el ancho de la ventana, no el de la pantalla */
+#sedeModal .modal-dialog {
+  max-width: min(1000px, calc(100vw - 32px));
+}
+
+#sedeModal .modal-body {
+  container-type: inline-size;
+}
+
 .ns-form {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) auto minmax(260px, 1.4fr);
-  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1.3fr);
+  gap: 16px 20px;
   padding: 16px;
   align-items: start;
+}
+
+.ns-form > * {
+  min-width: 0;
+}
+
+#ns-contour-meta {
+  display: block;
+  margin-top: 6px;
 }
 
 .ns-zoom {
@@ -2142,9 +2161,9 @@ label.panel-label {
 }
 
 
-@media (max-width: 860px) {
+@container (max-width: 820px) {
   .ns-form {
-    grid-template-columns: 1fr auto;
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
   .ns-field-contour {
@@ -2152,8 +2171,8 @@ label.panel-label {
   }
 }
 
-@media (max-width: 575px) {
+@container (max-width: 480px) {
   .ns-form {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }

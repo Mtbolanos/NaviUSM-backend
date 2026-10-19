@@ -393,11 +393,11 @@ function restoreBaseStatus() {
 window.addEventListener('load', () => {
   // Renderizador Canvas: permite 'tolerance', que agrega margen de clic alrededor de líneas y polígonos
   // En el editor de edificio, maxBoundsViscosity 1: el borde del área es firme (no se arrastra afuera)
-  // Zoom hasta 22: el mapa vectorial se ve nítido; el raster (respaldo) amplía su último nivel
-  const maxZoom = 22;
+  // Zoom máximo según el mapa base (vectorial: 24, nítido; raster: 22)
+  const maxZoom = NV.mapMaxZoom();
   map = L.map('map', { zoomControl: false, maxZoom, maxBoundsViscosity: IS_BUILDING ? 1.0 : 0, renderer: L.canvas({ tolerance: 8 }) });
   L.control.zoom({ position: 'bottomright' }).addTo(map);
-  NV.baseLayer(map, { maxZoom });
+  NV.baseLayer(map);
 
   map.on('click', onMapClick);
   map.on('mousemove', onMapMouseMove);

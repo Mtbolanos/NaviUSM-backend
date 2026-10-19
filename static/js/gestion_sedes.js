@@ -21,8 +21,8 @@ let modal = null;
 
 function ensureMap() {
   if (nsMap) return;
-  nsMap = L.map('ns-map', { zoomControl: true, maxZoom: 22 }).setView(center, 16);
-  NV.baseLayer(nsMap, { maxZoom: 22 });
+  nsMap = L.map('ns-map', { zoomControl: true, maxZoom: NV.mapMaxZoom() }).setView(center, 16);
+  NV.baseLayer(nsMap);
   nsMarker = L.marker(center, { draggable: true }).addTo(nsMap);
   nsMarker.on('dragend', () => { const p = nsMarker.getLatLng(); setCenter(p.lat, p.lng); });
   nsMap.on('click', (e) => {
@@ -60,7 +60,8 @@ document.getElementById('sedeModal').addEventListener('shown.bs.modal', () => {
   nsMap.invalidateSize();
   setCenter(center[0], center[1]);
   renderContour();
-  if (ring.length >= 3) nsMap.fitBounds(L.latLngBounds(ring), { padding: [30, 30] });
+  // margen superior mayor: el buscador queda sobre el mapa
+  if (ring.length >= 3) nsMap.fitBounds(L.latLngBounds(ring), { paddingTopLeft: [30, 90], paddingBottomRight: [30, 30] });
   else nsMap.setView(center, editingId ? parseInt(document.getElementById('ns-zoom').value, 10) || 17 : 14);
   if (!editingId) document.getElementById('ns-nombre').focus();
 });
@@ -87,7 +88,7 @@ function syncContourUi() {
     ? `${ring.length} ${ring.length === 1 ? 'vértice' : 'vértices'}`
     : has ? `${ring.length} vértices: arrastra para mover, clic en un vértice para quitarlo` : 'Sin contorno: el editor no limita el área';
   document.getElementById('ns-map').classList.toggle('is-drawing', drawing);
-  hint(drawing ? 'Clic para agregar vértices. Clic en el primero, Enter o "Terminar" para cerrar. Retroceso quita el último; Esc cancela.' : '');
+  hint(drawing ? 'Clic para agregar vértices (se pueden arrastrar). Clic en el primero, Enter o "Terminar" para cerrar. Retroceso quita el último; Esc cancela.' : '');
 }
 
 function vertexIcon(cls) {
@@ -101,9 +102,12 @@ function renderContour() {
   const color = getComputedStyle(document.documentElement).getPropertyValue('--naviusm-accent').trim() || '#f5a623';
   if (drawing) {
     if (ring.length) L.polyline(ring, { color, weight: 2, dashArray: '6,4', interactive: false }).addTo(contourLayer);
+    // Los vértices ya puestos se pueden arrastrar mientras se dibuja; clic en el primero cierra el contorno
     ring.forEach((ll, i) => {
-      const m = L.marker(ll, { icon: vertexIcon(i === 0 ? 'is-first' : ''), keyboard: false }).addTo(contourLayer);
-      if (i === 0) m.on('click', (e) => { L.DomEvent.stopPropagation(e); terminarContorno(); });
+      const m = L.marker(ll, { icon: vertexIcon(i === 0 ? 'is-first' : ''), draggable: true, keyboard: false }).addTo(contourLayer);
+      m.on('drag', () => { ring[i] = m.getLatLng(); contourLayer.eachLayer(l => l instanceof L.Polyline && l.setLatLngs(ring)); });
+      m.on('dragend', renderContour);
+      m.on('click', (e) => { L.DomEvent.stopPropagation(e); if (i === 0) terminarContorno(); });
     });
   } else if (ring.length >= 3) {
     L.polygon(ring, { color, weight: 2, fillOpacity: 0.08, interactive: false }).addTo(contourLayer);
