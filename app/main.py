@@ -1,15 +1,18 @@
+import logging
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import RedirectResponse, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 from fastapi.exception_handlers import http_exception_handler, request_validation_exception_handler
 
 from app.api_keys.router import router as api_keys_router
 from app.auth.router import router as auth_router
 from app.config import settings
 from app.geocode.router import router as geocode_router
+from app.grafo import registro
 from app.grafo.router import router as grafo_router
 from app.mobile.router import router as mobile_router
 from app.sedes.router import router as sedes_router
@@ -73,6 +76,21 @@ def _resumen(errores: list[dict]) -> str:
     return "; ".join(frases)
 
 
+logger = logging.getLogger(__name__)
+
+
+async def _registrar_rechazo(request: Request, exc: RequestValidationError, detail: str | None = None) -> None:
+    """Fila 'rechazado' en `publicacion` para un 422 del pipeline. Nunca lanza."""
+    try:
+        if detail is None:
+            detail = _resumen(list(exc.errors()))
+        await run_in_threadpool(
+            registro.registrar_rechazo_validacion, request, 422, detail, getattr(exc, "body", None),
+        )
+    except Exception:
+        logger.exception("no se pudo registrar el rechazo de validacion")
+
+
 @app.exception_handler(RequestValidationError)
 async def validation_error_handler(request: Request, exc: RequestValidationError):
     """422 de la publicacion del grafo: resumido y sin el eco del payload.
@@ -86,15 +104,25 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
 
     El resto de las rutas (app movil, api-keys, ...) conserva el 422 por defecto
     de FastAPI.
+
+    Las rutas del pipeline de publicacion (publish y PATCH /edificios) dejan ademas una fila
+    'rechazado' en `publicacion` (app/grafo/registro.py). Va aca porque FastAPI levanta el 422 del
+    Nivel 2 antes de llamar al handler de la ruta. El registro no cambia la respuesta ni lanza.
     """
     ruta = request.scope.get("route")
-    if getattr(ruta, "path", None) not in _RUTAS_PUBLICACION:
-        return await request_validation_exception_handler(request, exc)
+    path = getattr(ruta, "path", None)
+    if path not in _RUTAS_PUBLICACION:
+        respuesta = await request_validation_exception_handler(request, exc)
+        if path in registro.ORIGENES:
+            await _registrar_rechazo(request, exc)
+        return respuesta
     errores = [
         {"loc": list(e.get("loc", [])), "msg": e.get("msg", ""), "type": e.get("type", "")}
         for e in exc.errors()
     ]
-    return JSONResponse(status_code=422, content={"detail": _resumen(errores), "errores": errores})
+    detail = _resumen(errores)
+    await _registrar_rechazo(request, exc, detail)
+    return JSONResponse(status_code=422, content={"detail": detail, "errores": errores})
 
 
 @app.middleware("http")
