@@ -51,7 +51,7 @@
   <div id="map"></div>
 
   <!-- Estado del mapa: esquina superior derecha, cada píldora alineada a la derecha por separado -->
-  <div class="map-status">
+  <div class="map-status map-overlay">
     <div class="status-pill" role="status" aria-live="polite">
       <div class="s-dot" id="sdot"></div>
       <span id="status-txt">Listo</span>
@@ -60,7 +60,7 @@
   </div>
 
   <!-- Panel flotante: lugar visible, historial, leyenda y ayuda -->
-  <div id="map-panel" class="map-panel">
+  <div id="map-panel" class="map-panel map-overlay">
     <div class="panel-field">
       <label class="panel-label" for="building-selector">Edificio / área</label>
       <select id="building-selector" class="form-select form-select-sm" onchange="changeBuilding()">
@@ -201,5 +201,5 @@
     sedesInfo: {{ sedes_json | tojson | safe }}
   };
 </script>
-<script src="{{ url_for('static', path='js/admin.js') }}?v=0.5.1"></script>
+<script src="{{ url_for('static', path='js/admin.js') }}?v=0.5.2"></script>
 {% endblock %}

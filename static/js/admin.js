@@ -95,6 +95,70 @@ function setNodeTooltip(marker, name) {
   marker.bindTooltip(escapeHtml(name), { permanent: false, direction: 'top' });
 }
 
+// Ubica el popup dentro del mapa sin moverlo: por defecto arriba del punto; si no cabe, abajo
+// (o donde haya más espacio), y lo corre hacia los lados dejando la punta sobre el punto.
+// Se basa en Popup._updatePosition de Leaflet 1.9.4: bottom = -offset.y y left = -ancho/2 + offset.x.
+const POPUP_MARGIN = 10;
+const POPUP_TIP = 20;      // alto de la punta (.leaflet-popup-tip-container / margin-bottom de .leaflet-popup)
+const POPUP_OFFSET_Y = 7;  // offset por defecto de L.Popup
+
+function fitPopup(popup) {
+  if (!popup || !popup.isOpen()) return;
+  const el = popup.getElement();
+  const tip = el.querySelector('.leaflet-popup-tip-container');
+  popup.options.offset = [0, POPUP_OFFSET_Y];
+  el.classList.remove('nv-below');
+  if (tip) tip.style.left = '';
+  popup.update(); // recalcula el ancho con el contenido actual
+
+  const size = map.getSize();
+  const p = map.latLngToContainerPoint(popup.getLatLng());
+  const w = el.offsetWidth;
+  const h = el.offsetHeight; // sin la punta: va en position:absolute fuera del flujo
+  const spaceAbove = p.y - POPUP_TIP - POPUP_MARGIN;
+  const spaceBelow = size.y - p.y - POPUP_TIP - POPUP_MARGIN;
+  const below = h > spaceAbove && spaceBelow > spaceAbove;
+
+  const idealLeft = p.x - w / 2;
+  const clampLeft = (x) => Math.max(POPUP_MARGIN, Math.min(x, size.x - POPUP_MARGIN - w));
+  let left = clampLeft(idealLeft);
+  const top = below ? p.y + POPUP_TIP : p.y - POPUP_TIP + POPUP_OFFSET_Y - h;
+
+  // El panel y el estado flotan sobre el mapa (por encima de los popups): si el popup queda debajo
+  // de uno, se corre hacia el lado libre manteniendo la punta sobre el punto; si no se puede, se atenúa
+  const overlaps = (r, l) => l < r.right && l + w > r.left && top < r.bottom && top + h > r.top;
+  const tipFits = (l) => p.x >= l + 24 && p.x <= l + w - 24;
+  document.querySelectorAll('.map-overlay.is-covered').forEach(o => o.classList.remove('is-covered'));
+  mapOverlayRects().forEach(({ el: overlay, rect }) => {
+    if (!overlaps(rect, left)) return;
+    const alt = [rect.right + POPUP_MARGIN, rect.left - POPUP_MARGIN - w]
+      .find(l => l === clampLeft(l) && tipFits(l) && !overlaps(rect, l));
+    if (alt !== undefined) left = alt;
+    else overlay.classList.add('is-covered');
+  });
+  const dx = Math.round(left - idealLeft);
+
+  if (below) el.classList.add('nv-below');
+  // Abajo: el borde inferior queda en p.y + punta + alto (bottom = -offset.y)
+  popup.options.offset = [dx, below ? POPUP_TIP + h : POPUP_OFFSET_Y];
+  popup.update();
+  if (tip && dx) {
+    const tipCenter = Math.max(24, Math.min(w - 24, w / 2 - dx));
+    tip.style.left = tipCenter + 'px';
+  }
+}
+
+// Rectángulos (relativos al mapa) de los elementos flotantes visibles sobre el mapa
+function mapOverlayRects() {
+  const m = map.getContainer().getBoundingClientRect();
+  return [...document.querySelectorAll('.map-overlay')]
+    .filter(el => !el.hidden && el.offsetParent !== null)
+    .map(el => {
+      const r = el.getBoundingClientRect();
+      return { el, rect: { left: r.left - m.left, right: r.right - m.left, top: r.top - m.top, bottom: r.bottom - m.top } };
+    });
+}
+
 // Aviso breve en el mapa, donde el usuario está mirando
 function showMapHint(latlng, msg) {
   const hint = L.tooltip(latlng, { content: escapeHtml(msg), direction: 'top', offset: [0, -8], className: 'map-hint' });
@@ -189,9 +253,10 @@ window.addEventListener('load', () => {
   }).addTo(map);
 
   map.on('click', onMapClick);
-  map.on('popupopen', (e) => { activePopup = e.popup; });
+  map.on('popupopen', (e) => { activePopup = e.popup; fitPopup(e.popup); });
   map.on('popupclose', (e) => {
     if (activePopup === e.popup) activePopup = null;
+    document.querySelectorAll('.map-overlay.is-covered').forEach(o => o.classList.remove('is-covered'));
     if (ctx && ctx.popup === e.popup) ctx = null;
     if (e.popup.options.className?.includes('nv-edit')) clearSelection();
   });
@@ -680,7 +745,7 @@ function labelForLast(last) {
 }
 
 function openCreateMenu(latlng) {
-  const popup = L.popup({ className: 'nv-popup nv-menu', closeButton: false, autoPan: true, minWidth: 220, maxWidth: 300 }).setLatLng(latlng);
+  const popup = L.popup({ className: 'nv-popup nv-menu', closeButton: false, autoPan: false, minWidth: 220, maxWidth: 300 }).setLatLng(latlng);
   ctx = { latlng, popup, step: 'menu', options: [] };
   showMenuStep(rootMenuOptions(), 'Crear aquí');
   popup.openOn(map);
@@ -745,7 +810,7 @@ function showMenuStep(options, title, withBack = false) {
     root.appendChild(back);
   }
   ctx.popup.setContent(root);
-  ctx.popup.update();
+  fitPopup(ctx.popup);
 }
 
 // Formulario de un nodo nuevo con datos (POI o edificio). En el edificio, al enviarlo empieza el dibujo del contorno.
@@ -782,7 +847,7 @@ function showNodeForm(type) {
   });
   form.querySelector('[data-cancel]').addEventListener('click', () => map.closePopup());
   ctx.popup.setContent(form);
-  ctx.popup.update();
+  fitPopup(ctx.popup);
   setTimeout(() => form.querySelector('input[name="name"]').focus(), 0);
 }
 
@@ -1127,7 +1192,7 @@ function openInfoPopup(type, id, latlng) {
       <h6 style="margin-bottom:10px; font-weight:bold; color:var(--naviusm-text-strong);">${escapeHtml(title)}</h6>
       <dl>${body}</dl>
     </div>`;
-  L.popup({ className: 'nv-popup', maxWidth: 280 }).setLatLng(latlng).setContent(html).openOn(map);
+  L.popup({ className: 'nv-popup', autoPan: false, maxWidth: 280 }).setLatLng(latlng).setContent(html).openOn(map);
 }
 
 function popupActions(kind, id) {
@@ -1201,7 +1266,7 @@ function openEditPopup(type, id, latlng) {
         ${popupActions('zone', id)}
       </div>`;
   }
-  L.popup({ className: 'nv-popup nv-edit', maxWidth: 300, minWidth: 240 }).setLatLng(latlng).setContent(html).openOn(map);
+  L.popup({ className: 'nv-popup nv-edit', autoPan: false, maxWidth: 300, minWidth: 240 }).setLatLng(latlng).setContent(html).openOn(map);
 }
 
 // Al cambiar el tipo en el popup: mostrar u ocultar los campos de POI y proponer el ícono del nuevo tipo

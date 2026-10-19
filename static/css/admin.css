@@ -973,3 +973,24 @@ kbd {
 #map.leaflet-container:focus {
   outline: none;
 }
+
+/* Popup ubicado bajo el punto (sin espacio arriba): la punta pasa al borde superior */
+.leaflet-popup.nv-below {
+  margin-bottom: 0;
+}
+
+.leaflet-popup.nv-below .leaflet-popup-tip-container {
+  top: -20px;
+  margin-top: 0;
+  transform: rotate(180deg);
+}
+
+/* Panel o estado bajo un popup que no pudo correrse: se atenúa mientras el popup está abierto */
+.map-overlay {
+  transition: opacity 0.15s;
+}
+
+.map-overlay.is-covered {
+  opacity: 0.15;
+  pointer-events: none;
+}
