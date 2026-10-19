@@ -1302,7 +1302,7 @@ kbd {
 
 .floor-row {
   display: grid;
-  grid-template-columns: 90px minmax(140px, 1fr) 90px 150px 210px;
+  grid-template-columns: 90px minmax(140px, 1fr) 90px 150px 206px;
   align-items: center;
   gap: 10px;
 }
@@ -1325,9 +1325,13 @@ kbd {
 }
 
 .floor-actions {
-  display: flex;
-  justify-content: flex-end;
+  display: grid;
+  grid-template-columns: 120px 80px;
   gap: 6px;
+}
+
+.floor-actions .btn {
+  width: 100%;
 }
 
 .bld-foot {
@@ -1352,4 +1356,60 @@ kbd {
   .floor-header {
     display: none;
   }
+}
+
+/* ===== Barra inferior fija de páginas con guardado (Gestión de Edificios) ===== */
+.page-footer {
+  position: sticky;
+  bottom: -48px;              /* compensa el padding inferior de .page para quedar pegada al borde */
+  margin: 24px -24px -48px;
+  padding: 0 24px;
+  background: var(--naviusm-surface);
+  border-top: 1px solid var(--naviusm-border);
+  box-shadow: 0 -4px 16px var(--naviusm-shadow);
+  z-index: 5;
+}
+
+.page-footer-inner {
+  max-width: 1100px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+/* Con barra inferior: el contenido ocupa el alto disponible y la barra queda abajo aunque haya poco contenido */
+.page.has-footer {
+  display: flex;
+  flex-direction: column;
+}
+
+.page.has-footer > .page-inner {
+  flex: 1 0 auto;
+  width: 100%;
+}
+
+.btn-ed:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* Encabezado fijo arriba al hacer scroll (título y selector de sede siempre visibles) */
+.page-header-sticky {
+  position: sticky;
+  top: -32px;                 /* compensa el padding superior de .page: queda pegado arriba */
+  z-index: 5;
+  margin: -32px -24px 16px;
+  padding: 18px 24px 10px;
+  background: var(--naviusm-bg);
+}
+
+.page-header-sticky h3 {
+  font-size: 1.35rem;
+}
+
+.header-search {
+  width: 280px;
+  max-width: 100%;
 }

@@ -1,4 +1,5 @@
 import copy
+import json
 from uuid import UUID
 from sqlalchemy import desc, text
 from sqlalchemy.orm import Session
@@ -234,6 +235,20 @@ def validate_payload_ownership(db: Session, sede: Sede, payload: dict, org_id) -
     if set(_parse_ids(edges, "from")) - node_set or set(_parse_ids(edges, "to")) - node_set:
         raise PayloadOwnershipError("Hay aristas que conectan nodos que no pertenecen a esta sede")
 
+def _unique_by_id(items) -> list:
+    """Una fila por id (la última gana), como cuando se insertaba fila por fila con ON CONFLICT."""
+    by_id = {}
+    for item in items:
+        by_id[item["id"]] = item
+    return list(by_id.values())
+
+
+def _execute_rows(db: Session, sql: str, rows: list, **params) -> None:
+    """Ejecuta un INSERT ... SELECT FROM jsonb_to_recordset(:rows) con todas las filas en un solo viaje."""
+    if rows:
+        db.execute(text(sql), {"rows": json.dumps(rows), **params})
+
+
 def publish_graph_data(db: Session, sede: Sede, payload: dict, org_id, base_version: int | None = None) -> int:
     """Publica el grafo. Con base_version, rechaza la publicación si desde entonces se publicó otra versión."""
     normalize_buildings(payload)
@@ -250,104 +265,87 @@ def publish_graph_data(db: Session, sede: Sede, payload: dict, org_id, base_vers
     new_version = current_version + 1
     create_snapshot(db, sede.id, org_id, payload, new_version)
 
-    # 2. UPSERT de Edificios
-    incoming_blds = []
-    for b in payload.get("buildings", []):
-        if b["id"] == "exterior":
-            continue
-        incoming_blds.append(b["id"])
-        db.execute(
-            text("""
-                INSERT INTO edificio (id, sede_id, organizacion_id, nombre, piso_acceso)
-                VALUES (:id, :sede, :org, :nombre, :acceso)
-                ON CONFLICT (id) DO UPDATE SET
-                    nombre = EXCLUDED.nombre,
-                    piso_acceso = EXCLUDED.piso_acceso
-                WHERE edificio.organizacion_id = EXCLUDED.organizacion_id
-                AND edificio.sede_id = EXCLUDED.sede_id
-            """),
-            {"id": b["id"], "sede": sede.id, "org": org_id, "nombre": b["name"], "acceso": b["acceso"]},
-        )
+    # 2-4. Edificios, pisos, nodos, POIs y aristas: una sentencia por tabla (las filas viajan como JSON).
+    # Antes era una sentencia por fila (miles por publicación), y cada una es un viaje de red a la base.
+    buildings = _unique_by_id(b for b in payload.get("buildings", []) if b["id"] != "exterior")
+    nodes = _unique_by_id(payload.get("nodes", []))
+    edges = _unique_by_id(payload.get("edges", []))
+    incoming_blds = [b["id"] for b in buildings]
+    incoming_nodes = [n["id"] for n in nodes]
+    incoming_edges = [e["id"] for e in edges]
+
+    if buildings:
+        _execute_rows(db, """
+            INSERT INTO edificio (id, sede_id, organizacion_id, nombre, piso_acceso)
+            SELECT r.id, :sede, :org, r.nombre, r.acceso
+            FROM jsonb_to_recordset(CAST(:rows AS jsonb)) AS r(id uuid, nombre text, acceso int)
+            ON CONFLICT (id) DO UPDATE SET
+                nombre = EXCLUDED.nombre,
+                piso_acceso = EXCLUDED.piso_acceso
+            WHERE edificio.organizacion_id = EXCLUDED.organizacion_id
+            AND edificio.sede_id = EXCLUDED.sede_id
+        """, [{"id": b["id"], "nombre": b["name"], "acceso": b["acceso"]} for b in buildings], sede=sede.id, org=org_id)
         # Los pisos se reemplazan completos: el snapshot es la fuente de verdad
-        db.execute(text("DELETE FROM edificio_piso WHERE edificio_id = :id"), {"id": b["id"]})
-        for p in b["pisos"]:
-            db.execute(
-                text("""
-                    INSERT INTO edificio_piso (edificio_id, organizacion_id, numero, nombre)
-                    VALUES (:id, :org, :numero, :nombre)
-                """),
-                {"id": b["id"], "org": org_id, "numero": p["numero"], "nombre": p["nombre"]},
-            )
+        db.execute(text("DELETE FROM edificio_piso WHERE edificio_id = ANY(CAST(:ids AS uuid[]))"), {"ids": incoming_blds})
+        _execute_rows(db, """
+            INSERT INTO edificio_piso (edificio_id, organizacion_id, numero, nombre)
+            SELECT r.edificio_id, :org, r.numero, r.nombre
+            FROM jsonb_to_recordset(CAST(:rows AS jsonb)) AS r(edificio_id uuid, numero int, nombre text)
+        """, [{"edificio_id": b["id"], "numero": p["numero"], "nombre": p["nombre"]} for b in buildings for p in b["pisos"]], org=org_id)
 
-    # 3. UPSERT de Nodos y POIs
-    incoming_nodes = []
-    for n in payload.get("nodes", []):
-        incoming_nodes.append(n["id"])
-        edificio_uuid = n.get("building") if n.get("building") != "exterior" else None
+    if nodes:
+        _execute_rows(db, """
+            INSERT INTO nodo (id, sede_id, organizacion_id, geom, piso, tipo, edificio_id)
+            SELECT r.id, :sede, :org, ST_SetSRID(ST_MakePoint(r.lng, r.lat, r.piso), 4326), r.piso, r.tipo, r.edificio_id
+            FROM jsonb_to_recordset(CAST(:rows AS jsonb)) AS r(id uuid, lng float8, lat float8, piso int, tipo text, edificio_id uuid)
+            ON CONFLICT (id) DO UPDATE SET
+                geom = EXCLUDED.geom,
+                piso = EXCLUDED.piso,
+                tipo = EXCLUDED.tipo,
+                edificio_id = EXCLUDED.edificio_id
+            WHERE nodo.organizacion_id = EXCLUDED.organizacion_id
+            AND nodo.sede_id = EXCLUDED.sede_id
+        """, [{
+            "id": n["id"], "lng": n["lng"], "lat": n["lat"], "piso": n.get("floor", 1), "tipo": n["type"],
+            "edificio_id": n.get("building") if n.get("building") not in (None, "exterior") else None,
+        } for n in nodes], sede=sede.id, org=org_id)
 
-        db.execute(
-            text("""
-                INSERT INTO nodo (id, sede_id, organizacion_id, geom, piso, tipo, edificio_id)
-                VALUES (:id, :sede, :org, ST_SetSRID(ST_MakePoint(:lng, :lat, :piso), 4326), :piso, :tipo, :edificio_id)
-                ON CONFLICT (id) DO UPDATE SET
-                    geom = EXCLUDED.geom,
-                    piso = EXCLUDED.piso,
-                    tipo = EXCLUDED.tipo,
-                    edificio_id = EXCLUDED.edificio_id
-                WHERE nodo.organizacion_id = EXCLUDED.organizacion_id 
-                AND nodo.sede_id = EXCLUDED.sede_id
-            """),
-            {
-                "id": n["id"], "sede": sede.id, "org": org_id,
-                "lng": n["lng"], "lat": n["lat"], "piso": n.get("floor", 1),
-                "tipo": n["type"], "edificio_id": edificio_uuid,
-            },
-        )
+        pois = [n for n in nodes if n["type"] not in ("waypoint", "user")]
+        not_pois = [n["id"] for n in nodes if n["type"] in ("waypoint", "user")]
+        if pois:
+            _execute_rows(db, """
+                INSERT INTO poi (nodo_id, organizacion_id, nombre, categoria, horario, descripcion, link_derivacion)
+                SELECT r.nodo_id, :org, r.nombre, r.categoria, r.horario, r.descripcion, r.link
+                FROM jsonb_to_recordset(CAST(:rows AS jsonb))
+                    AS r(nodo_id uuid, nombre text, categoria text, horario text, descripcion text, link text)
+                ON CONFLICT (nodo_id) DO UPDATE SET
+                    nombre = EXCLUDED.nombre,
+                    categoria = EXCLUDED.categoria,
+                    horario = EXCLUDED.horario,
+                    descripcion = EXCLUDED.descripcion,
+                    link_derivacion = EXCLUDED.link_derivacion
+                WHERE poi.organizacion_id = EXCLUDED.organizacion_id
+            """, [{
+                "nodo_id": n["id"], "nombre": n["name"], "categoria": n["type"], "horario": n.get("horario"),
+                "descripcion": n.get("descripcion"), "link": n.get("link_derivacion"),
+            } for n in pois], org=org_id)
+        if not_pois:
+            db.execute(text("DELETE FROM poi WHERE nodo_id = ANY(CAST(:ids AS uuid[]))"), {"ids": not_pois})
 
-        if n["type"] not in ["waypoint", "user"]:
-            db.execute(
-                text("""
-                    INSERT INTO poi (nodo_id, organizacion_id, nombre, categoria, horario, descripcion, link_derivacion)
-                    VALUES (:nodo, :org, :nombre, :cat, :horario, :descripcion, :link)
-                    ON CONFLICT (nodo_id) DO UPDATE SET
-                        nombre = EXCLUDED.nombre,
-                        categoria = EXCLUDED.categoria,
-                        horario = EXCLUDED.horario,
-                        descripcion = EXCLUDED.descripcion,
-                        link_derivacion = EXCLUDED.link_derivacion
-                    WHERE poi.organizacion_id = EXCLUDED.organizacion_id
-                """),
-                {
-                    "nodo": n["id"], "org": org_id, "nombre": n["name"], "cat": n["type"],
-                    "horario": n.get("horario"),
-                    "descripcion": n.get("descripcion"), "link": n.get("link_derivacion"),
-                },
-            )
-        else:
-            db.execute(text("DELETE FROM poi WHERE nodo_id = :nodo"), {"nodo": n["id"]})
-
-    # 4. UPSERT de Aristas
-    incoming_edges = []
-    for e in payload.get("edges", []):
-        incoming_edges.append(e["id"])
-        db.execute(
-            text("""
-                INSERT INTO arista (id, origen_id, destino_id, organizacion_id, distancia, es_escalera)
-                VALUES (:id, :origen, :destino, :org, :distancia, :es_escalera)
-                ON CONFLICT (id) DO UPDATE SET
-                    distancia = EXCLUDED.distancia,
-                    es_escalera = EXCLUDED.es_escalera
-                WHERE arista.organizacion_id = EXCLUDED.organizacion_id
-            """),
-            {
-                "id": e["id"], 
-                "origen": e["from"], 
-                "destino": e["to"], 
-                "org": org_id, 
-                "distancia": e["weight"],
-                "es_escalera": e.get("es_escalera", False)
-            },
-        )
+    if edges:
+        _execute_rows(db, """
+            INSERT INTO arista (id, origen_id, destino_id, organizacion_id, distancia, es_escalera)
+            SELECT r.id, r.origen, r.destino, :org, r.distancia, r.es_escalera
+            FROM jsonb_to_recordset(CAST(:rows AS jsonb))
+                AS r(id uuid, origen uuid, destino uuid, distancia numeric, es_escalera boolean)
+            ON CONFLICT (id) DO UPDATE SET
+                distancia = EXCLUDED.distancia,
+                es_escalera = EXCLUDED.es_escalera
+            WHERE arista.organizacion_id = EXCLUDED.organizacion_id
+        """, [{
+            "id": e["id"], "origen": e["from"], "destino": e["to"], "distancia": e["weight"],
+            "es_escalera": bool(e.get("es_escalera", False)),
+        } for e in edges], org=org_id)
 
     # 5. Preparar source/target para pgRouting
     db.execute(
