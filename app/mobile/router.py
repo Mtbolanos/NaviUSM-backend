@@ -111,9 +111,14 @@ def get_snapshot(sede_id: UUID, api_key: ApiKey = Depends(require_session), db: 
     """
     Última versión publicada del grafo de la sede: `meta`, `buildings`, `nodes`, `edges` y `zonas`.
 
-    Formato `meta.version = "2.2"`: cada edificio trae `acceso` (piso a nivel de la calle) y
-    `pisos: [{numero, nombre}]` (lista explícita; `nombre` puede ser `null`). Reemplaza a `min`/`max`.
-    Los nodos dentro de un edificio (`building` distinto de `"exterior"`) siempre están en uno de sus pisos.
+    Formato `meta.version = "2.3"`:
+    - cada edificio trae `acceso` (piso a nivel de la calle) y `pisos: [{numero, nombre}]`;
+    - `conectores: [{id, tipo, nombre, building}]` (tipo: escalera, ascensor o rampa) y, en sus paradas,
+      `nodes[].conector_id`. Las paradas consecutivas están unidas por aristas; las de una escalera llevan
+      `es_escalera = true` (una ruta accesible las evita);
+    - los nodos dentro de un edificio siempre están en uno de sus pisos;
+    - `weight` = distancia en metros + 15 por piso de diferencia (el exterior y el piso de acceso cuentan
+      como el mismo nivel).
     """
     sede = db.query(Sede).filter(Sede.id == sede_id, Sede.organizacion_id == api_key.organizacion_id).first()
     snapshot = get_latest_snapshot(db, sede.id) if sede else None

@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.auth.crud import change_user_password
@@ -9,9 +8,9 @@ from app.models import Usuario
 from app.security import get_current_user, login_user, set_auth_cookie, verify_password
 from app.config import settings
 
+from app.templating import templates
+
 router = APIRouter()
-templates = Jinja2Templates(directory="templates")
-templates.env.cache = None
 
 def _root_path(request: Request) -> str:
     return request.scope.get("root_path", "").rstrip("/")

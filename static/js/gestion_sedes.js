@@ -1,6 +1,6 @@
-const ROOT_PATH = window.SEDES_CONFIG.rootPath;
+const ROOT_PATH = NV.site().rootPath;
 // Mapa base configurable desde el servidor (MAP_TILE_URL); por defecto, OpenStreetMap
-const MAP_TILES = window.MAP_TILES || {
+const MAP_TILES = NV.site().mapTiles || {
   url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
   attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors',
   max_zoom: 19,
@@ -60,31 +60,29 @@ async function searchLocation() {
     if (data && data.length > 0) {
       data.forEach(place => {
         const a = document.createElement('a');
-        a.className = 'list-group-item list-group-item-action py-2';
-        a.style.fontSize = '12px';
-        a.style.cursor = 'pointer';
+        a.className = 'list-group-item list-group-item-action py-2 ns-result';
         // textContent: los nombres vienen de un servicio externo, nunca se insertan como HTML
         const title = document.createElement('div');
-        title.style.fontWeight = '600';
+        title.className = 'ns-result-title';
         title.textContent = place.nombre;
         a.appendChild(title);
         if (place.detalle) {
           const sub = document.createElement('div');
-          sub.className = 'text-muted';
+          sub.className = 'panel-meta';
           sub.textContent = place.detalle;
           a.appendChild(sub);
         }
         a.onclick = () => {
           updatePin(place.lat, place.lng);
           nsMap.setView([place.lat, place.lng], 17);
-          resDiv.style.display = 'none';
+          resDiv.hidden = true;
           document.getElementById('ns-search').value = place.nombre;
         };
         resDiv.appendChild(a);
       });
-      resDiv.style.display = 'block';
+      resDiv.hidden = false;
     } else {
-      resDiv.style.display = 'none';
+      resDiv.hidden = true;
       await window.uiAlert("No se encontraron resultados para esa búsqueda.", "Sin resultados");
     }
   } catch (e) {
@@ -98,7 +96,7 @@ async function searchLocation() {
 // Ocultar resultados si se hace click fuera
 document.addEventListener('click', (e) => {
   if (!e.target.closest('#ns-search-results') && e.target.id !== 'ns-search') {
-    document.getElementById('ns-search-results').style.display = 'none';
+    document.getElementById('ns-search-results').hidden = true;
   }
 });
 

@@ -1,7 +1,6 @@
 from uuid import UUID
 from fastapi import APIRouter, Body, Depends, Header, HTTPException
 from fastapi.responses import JSONResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -17,9 +16,9 @@ from app.grafo.schemas import EdificiosPatch
 from app.models import Sede, Usuario
 from app.security import get_current_user
 
+from app.templating import templates
+
 router = APIRouter()
-templates = Jinja2Templates(directory="templates")
-templates.env.cache = None
 
 # Versión del snapshot en headers propios: Cloudflare debilita los ETag (W/) al comprimir, y estos no los toca
 VERSION_HEADER = "X-Snapshot-Version"

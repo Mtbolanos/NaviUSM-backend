@@ -803,3 +803,23 @@ CREATE INDEX IF NOT EXISTS idx_api_key_organizacion ON public.api_key USING btre
 
 -- 003: pisos de edificio (edificio_piso, edificio.piso_acceso) y eliminación de sala
 -- Ya incluido arriba para instalaciones nuevas. En bases existentes aplicar migraciones/003_edificio_pisos.sql
+
+-- 004: conectores verticales (escalera, ascensor, rampa) y nodo.conector_id
+-- En bases existentes aplicar migraciones/004_conectores.sql (este bloque es el mismo contenido)
+
+CREATE TABLE IF NOT EXISTS public.conector (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    sede_id uuid NOT NULL REFERENCES public.sede(id) ON DELETE CASCADE,
+    edificio_id uuid NOT NULL REFERENCES public.edificio(id) ON DELETE CASCADE,
+    organizacion_id uuid NOT NULL REFERENCES public.organizacion(id) ON DELETE CASCADE,
+    tipo character varying(20) NOT NULL CHECK (tipo IN ('escalera', 'ascensor', 'rampa')),
+    nombre character varying(255)
+);
+
+CREATE INDEX IF NOT EXISTS idx_conector_edificio ON public.conector USING btree (edificio_id);
+
+ALTER TABLE public.conector ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE public.nodo ADD COLUMN IF NOT EXISTS conector_id uuid REFERENCES public.conector(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS idx_nodo_conector ON public.nodo USING btree (conector_id);

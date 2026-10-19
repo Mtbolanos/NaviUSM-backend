@@ -6,7 +6,7 @@
  <div class="page-inner">
   <div class="page-header">
     <h3>Sedes administradas</h3>
-    <button class="btn-ed btn-ed-accent" data-bs-toggle="modal" data-bs-target="#newSedeModal">+ Agregar sede</button>
+    <button class="btn btn-sm btn-accent" data-bs-toggle="modal" data-bs-target="#newSedeModal">+ Agregar sede</button>
   </div>
 
   <div class="row">
@@ -14,9 +14,9 @@
     <div class="col-md-4 mb-3">
       <div class="nv-card h-100 d-flex flex-column">
         <div class="d-flex flex-column flex-grow-1">
-          <h5 style="color: var(--naviusm-text-strong); font-weight: 600;">{{ sede.nombre }}</h5>
-          <p class="text-muted" style="font-size: 12px;">Lat: {{ sede.latitud }} | Lng: {{ sede.longitud }}</p>
-          <button class="btn-ed btn-ed-danger w-100 mt-auto" data-id="{{ sede.id }}" data-nombre="{{ sede.nombre }}"
+          <h5 class="card-title-strong">{{ sede.nombre }}</h5>
+          <p class="panel-meta">Lat: {{ sede.latitud }} | Lng: {{ sede.longitud }}</p>
+          <button class="btn btn-sm btn-danger w-100 mt-auto" data-id="{{ sede.id }}" data-nombre="{{ sede.nombre }}"
             onclick="eliminarSede(this.dataset.id, this.dataset.nombre)">Eliminar sede</button>
         </div>
       </div>
@@ -27,60 +27,48 @@
 </div>
 
 <div class="modal fade" id="newSedeModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered modal-lg"> <!-- Modal ampliado a lg -->
+  <div class="modal-dialog modal-dialog-centered modal-lg">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title fw-bold" style="font-size: 16px;">Crear Nueva Sede</h5>
+        <h5 class="modal-title fw-bold">Crear nueva sede</h5>
       </div>
       <div class="modal-body p-0">
         <!-- Contenedor del Mapa y Buscador -->
-        <div style="position: relative;">
-          <div style="position: absolute; top: 10px; left: 50px; right: 10px; z-index: 1000;">
+        <div class="ns-map-wrap">
+          <div class="ns-search">
             <div class="d-flex gap-2">
               <input type="text" id="ns-search" class="form-control form-control-sm shadow-sm"
                 placeholder="Buscar dirección, universidad o lugar..."
                 onkeydown="if(event.key==='Enter') searchLocation()">
-              <button class="btn btn-sm btn-primary shadow-sm" onclick="searchLocation()"
-                style="background:var(--naviusm-accent); color:black; border:none; font-weight:bold;">Buscar</button>
+              <button class="btn btn-sm btn-accent shadow-sm" onclick="searchLocation()">Buscar</button>
             </div>
-            <div class="form-check form-switch mt-1 d-inline-flex align-items-center gap-2"
-              style="background: var(--naviusm-surface); padding: 2px 10px 2px 2.6em; border-radius: 6px; font-size: 12px;">
+            <div class="form-check form-switch mt-1 d-inline-flex align-items-center gap-2 ns-switch">
               <input class="form-check-input" type="checkbox" id="ns-solo-recintos" checked>
               <label class="form-check-label" for="ns-solo-recintos">Solo recintos (sin calles ni direcciones)</label>
             </div>
             <!-- Div de resultados de búsqueda -->
-            <div id="ns-search-results" class="list-group shadow mt-1"
-              style="display: none; max-height: 200px; overflow-y: auto;"></div>
+            <div id="ns-search-results" class="list-group shadow mt-1 ns-results" hidden></div>
           </div>
-          <div id="ns-map" style="height: 380px; width: 100%; background: var(--naviusm-bg);"></div>
+          <div id="ns-map" class="ns-map"></div>
         </div>
 
         <div class="p-3 pb-2">
-          <label class="form-label small fw-bold">Nombre del Campus</label>
+          <label class="form-label panel-label" for="ns-nombre">Nombre de la sede</label>
           <input type="text" class="form-control" id="ns-nombre" placeholder="Ej: Sede Concepción">
         </div>
       </div>
       <div class="modal-footer d-flex justify-content-between align-items-center">
-        <!-- Display de Coordenadas en la izquierda -->
-        <div style="font-size: 12px; color: var(--naviusm-muted); font-weight: bold; font-family: var(--naviusm-mono);">
+        <div class="ns-coords">
           <span id="ns-lat-disp">-33.036577</span>, <span id="ns-lng-disp">-71.486578</span>
         </div>
-        <!-- Botones a la derecha -->
-        <div>
-          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
-          <button type="button" class="btn btn-primary btn-sm ms-2"
-            style="background:var(--naviusm-accent); color:black; border:none; font-weight:bold;"
-            onclick="submitNuevaSede()">Crear Sede</button>
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="button" class="btn btn-sm btn-accent" onclick="submitNuevaSede()">Crear sede</button>
         </div>
       </div>
     </div>
   </div>
 </div>
 
-<script>
-  window.SEDES_CONFIG = {
-    rootPath: "{{ request.scope.get('root_path', '') }}"
-  };
-</script>
-<script src="{{ url_for('static', path='js/gestion_sedes.js') }}?v=0.5.1"></script>
+<script src="{{ asset('js/gestion_sedes.js') }}"></script>
 {% endblock %}

@@ -9,39 +9,32 @@
     </div>
 
     <div class="nv-card mb-4">
-        <p class="text-muted" style="font-size: 13px;">Las API keys permiten que la app móvil lea las sedes y grafos de
-            tu
-            organización. La key completa se muestra <b>una sola vez</b> al crearla; guárdala en un lugar seguro.</p>
+        <p class="page-lead">Las API keys permiten que la app móvil lea las sedes y grafos de tu organización. La key completa se muestra <b>una sola vez</b> al crearla; guárdala en un lugar seguro.</p>
         <form id="ak-form" class="d-flex flex-wrap gap-3 align-items-end mt-2" onsubmit="crearKey(event)">
             <div>
-                <label class="form-label text-muted" style="font-size: 11px; font-weight: 700;">NOMBRE</label>
-                <input id="ak-nombre" type="text" class="form-control form-control-sm" maxlength="255" required
-                    placeholder="Ej: App móvil producción" style="width: 280px;">
+                <label class="form-label panel-label" for="ak-nombre">Nombre</label>
+                <input id="ak-nombre" type="text" class="form-control form-control-sm ak-nombre" maxlength="255" required
+                    placeholder="Ej: App móvil producción">
             </div>
             <div>
-                <label class="form-label text-muted" style="font-size: 11px; font-weight: 700;">EXPIRA
-                    (OPCIONAL)</label>
+                <label class="form-label panel-label" for="ak-expira">Expira (opcional)</label>
                 <input id="ak-expira" type="date" class="form-control form-control-sm">
             </div>
-            <button type="submit" class="btn-ed btn-ed-accent" style="font-size: 13px; padding: 7px 18px;">Crear API
-                key</button>
+            <button type="submit" class="btn btn-sm btn-accent">Crear API key</button>
         </form>
     </div>
 
-    <div id="ak-nueva" class="card p-3 mb-4" hidden
-        style="background: var(--naviusm-green-dim); border: 1px solid var(--naviusm-green);">
-        <div style="font-size: 13px; font-weight: 700; color: var(--naviusm-green);">Copia esta key ahora: no se volverá
-            a mostrar.</div>
+    <div id="ak-nueva" class="nv-callout nv-callout-ok mb-4" hidden>
+        <div class="nv-callout-title">Copia esta key ahora: no se volverá a mostrar.</div>
         <div class="d-flex gap-2 mt-2">
-            <input id="ak-nueva-valor" type="text" readonly class="form-control form-control-sm"
-                style="font-family: var(--naviusm-mono);">
+            <input id="ak-nueva-valor" type="text" readonly class="form-control form-control-sm mono">
             <button class="btn btn-sm btn-success" onclick="copiarKey()">Copiar</button>
         </div>
     </div>
 
     <div class="nv-card">
-        <div class="table-responsive" style="border-radius: 6px; border: 1px solid var(--naviusm-border);">
-            <table class="table table-hover mb-0" style="font-size: 13px;">
+        <div class="table-responsive nv-table-wrap">
+            <table class="table table-hover mb-0">
                 <thead>
                     <tr>
                         <th>Nombre</th>
@@ -55,7 +48,7 @@
                 </thead>
                 <tbody id="ak-body">
                     <tr>
-                        <td colspan="7" class="text-center text-muted py-4">Cargando...</td>
+                        <td colspan="7" class="text-center panel-meta py-4">Cargando...</td>
                     </tr>
                 </tbody>
             </table>
@@ -64,8 +57,5 @@
   </div>
 </div>
 
-<script>
-    window.AK_CONFIG = { rootPath: "{{ request.scope.get('root_path', '') }}" };
-</script>
-<script src="{{ url_for('static', path='js/api_keys.js') }}?v=1.1.0"></script>
+<script src="{{ asset('js/api_keys.js') }}"></script>
 {% endblock %}

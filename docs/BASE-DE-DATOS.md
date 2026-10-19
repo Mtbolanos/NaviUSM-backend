@@ -43,7 +43,8 @@ o sede. Las tablas tienen RLS habilitado sin políticas: la aplicación se conec
 |---|---|---|
 | `edificio` | `id`, `sede_id`, `organizacion_id`, `nombre`, `piso_acceso` (default 1) | `id` = id del nodo `building` del snapshot. `piso_acceso`: piso a nivel de la calle. |
 | `edificio_piso` | **PK (`edificio_id`, `numero`)**, `organizacion_id`, `nombre` (varchar 100, opcional) | Un registro por piso. Los números son enteros únicos por edificio (negativos = subterráneos). Sin `nombre` se muestra "Piso N" / "Subterráneo N". Se reemplazan completos al publicar. |
-| `nodo` | `id`, `sede_id`, `organizacion_id`, `geom` (PointZ 4326; Z = piso), `piso`, `tipo`, `edificio_id` (null = exterior), `gid` (serial, único), `created_at` | Puntos del grafo. `gid` es el id entero que usa pgRouting. |
+| `nodo` | `id`, `sede_id`, `organizacion_id`, `geom` (PointZ 4326; Z = piso), `piso`, `tipo`, `edificio_id` (null = exterior), `conector_id` (FK a `conector`, `SET NULL`), `gid` (serial, único), `created_at` | Puntos del grafo. `gid` es el id entero que usa pgRouting. `conector_id` marca los puntos de un conector. |
+| `conector` | `id`, `sede_id`, `edificio_id` (FK, cascade), `organizacion_id`, `tipo` (check: `escalera`, `ascensor`, `rampa`), `nombre` (opcional) | Escalera, ascensor o rampa entre pisos de un edificio. Sus puntos son los nodos con ese `conector_id`. Ascensor: un punto por piso, unidos de piso en piso. Escalera/rampa: tramos de un punto de un piso a otro punto del piso siguiente (llegada y salida de un piso intermedio se unen con aristas normales del piso); las aristas de los tramos de una escalera llevan `es_escalera = true`. |
 | `poi` | `id`, `nodo_id` (único), `organizacion_id`, `nombre`, `categoria` (= tipo del nodo), `horario`, `descripcion`, `link_derivacion` | Datos de los nodos que no son puntos de ruta. |
 | `arista` | `id`, `origen_id`, `destino_id` (FK a `nodo`, cascade; check origen <> destino), `organizacion_id`, `distancia` (= `weight` del snapshot), `es_escalera`, `es_bidireccional`, `es_accesible`, `source`, `target` | Conexiones. `source`/`target` se rellenan con `nodo.gid` para pgRouting. La ruta accesible evita `es_escalera = true`. |
 | `zona` | `id`, `sede_id`, `organizacion_id`, `edificio_id` (null = exterior), `nombre`, `geom` (Polygon 4326), `color_hex` | Contornos de edificio y zonas (seguras, etc.). |
@@ -64,6 +65,7 @@ organizacion ─┬─ usuario ── api_key.created_by (SET NULL)
               ├─ api_key
               └─ sede ─┬─ snapshot
                        ├─ edificio ─┬─ edificio_piso
+                       │            ├─ conector ── nodo.conector_id (SET NULL)
                        │            ├─ nodo.edificio_id
                        │            └─ zona.edificio_id
                        ├─ nodo ─┬─ poi
@@ -72,7 +74,7 @@ organizacion ─┬─ usuario ── api_key.created_by (SET NULL)
                        └─ ruta_evacuacion ── ruta_evacuacion_arista
 ```
 
-Todas las FK son `ON DELETE CASCADE`, salvo `api_key.created_by` (`SET NULL`).
+Todas las FK son `ON DELETE CASCADE`, salvo `api_key.created_by` y `nodo.conector_id` (`SET NULL`).
 
 ## Reglas que valida el publish
 
@@ -80,6 +82,7 @@ Todas las FK son `ON DELETE CASCADE`, salvo `api_key.created_by` (`SET NULL`).
 - Las aristas solo unen nodos del mismo payload (409).
 - Cada edificio tiene al menos un piso, sin números repetidos, y su `acceso` es uno de sus pisos (422).
 - Todo nodo dentro de un edificio está en un piso que existe en ese edificio (422).
+- Cada conector tiene un tipo válido y pertenece a un edificio del mapa; sus puntos están en ese edificio (422).
 - Control de versión: si el cliente envía `X-Base-Version` y ya no es la última versión publicada, 409.
 
 ## Migraciones
@@ -89,12 +92,13 @@ Todas las FK son `ON DELETE CASCADE`, salvo `api_key.created_by` (`SET NULL`).
 | `migracion_zonas_salas.sql` | Histórica: zonas y la antigua tabla `sala` (eliminada en la 003). |
 | `migraciones/002_api_keys.sql` | Tabla `api_key`. |
 | `migraciones/003_edificio_pisos.sql` | Tabla `edificio_piso`, columna `edificio.piso_acceso`, conversión de `piso_min`/`piso_max` (se eliminan) y eliminación de `sala`. Idempotente. |
+| `migraciones/004_conectores.sql` | Tabla `conector` y columna `nodo.conector_id`. Idempotente. |
 
 Aplicar una migración (respaldar antes):
 
 ```
 docker compose exec -T db pg_dump -U naviusm -d naviusm -Fc > respaldo.dump
-docker compose exec -T db psql -U naviusm -d naviusm -v ON_ERROR_STOP=1 < migraciones/003_edificio_pisos.sql
+docker compose exec -T db psql -U naviusm -d naviusm -v ON_ERROR_STOP=1 < migraciones/004_conectores.sql
 ```
 
 Toda migración nueva se refleja también en `schema_actualizado.sql` y en este documento.
