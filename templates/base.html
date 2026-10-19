@@ -1,10 +1,22 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="es" data-theme="dark" data-bs-theme="dark">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     {% block title %}<title>NaviUSM Studio</title>{% endblock %}
+    <script>
+        // Tema antes de pintar la página (evita el parpadeo): preferencia guardada o ajuste del sistema
+        (function () {
+            var pref = 'system';
+            try { pref = localStorage.getItem('naviusm-theme') || 'system'; } catch (e) { }
+            var dark = pref === 'dark' || (pref === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+            var root = document.documentElement;
+            root.setAttribute('data-theme', dark ? 'dark' : 'light');
+            root.setAttribute('data-bs-theme', dark ? 'dark' : 'light');
+            root.setAttribute('data-theme-pref', pref);
+        })();
+    </script>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
@@ -12,11 +24,14 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap"
         rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', path='css/admin.css') }}?v=0.4.3">
+    <link rel="stylesheet" href="{{ url_for('static', path='css/admin.css') }}?v=0.5.2">
+    {% if map_tiles is defined %}
+    <script>window.MAP_TILES = {{ map_tiles | tojson }};</script>
+    {% endif %}
 </head>
 
 <body>
-    <nav class="navbar navbar-expand navbar-dark navbar-custom px-3">
+    <nav class="navbar navbar-expand navbar-custom px-3">
         <a class="navbar-brand me-4" href="{{ request.scope.get('root_path', '') }}/admin">NaviUSM <sub>Studio</sub></a>
         <ul class="navbar-nav me-auto mb-2 mb-lg-0" id="main-navbar" style="font-size: 13px; font-weight: 600;">
             <li class="nav-item"><a class="nav-link" href="{{ request.scope.get('root_path', '') }}/admin">Dibujar
@@ -43,6 +58,18 @@
                         <hr class="dropdown-divider">
                     </li>
                     <li><a class="dropdown-item" href="{{ request.scope.get('root_path', '') }}/admin/api-keys">API Keys</a></li>
+                    <li>
+                        <hr class="dropdown-divider">
+                    </li>
+                    <li>
+                        <h6 class="dropdown-header">Tema</h6>
+                    </li>
+                    <li><button type="button" class="dropdown-item theme-opt" data-theme-pref="system">Según el sistema</button></li>
+                    <li><button type="button" class="dropdown-item theme-opt" data-theme-pref="light">Claro</button></li>
+                    <li><button type="button" class="dropdown-item theme-opt" data-theme-pref="dark">Oscuro</button></li>
+                    <li>
+                        <hr class="dropdown-divider">
+                    </li>
                     <li><a class="dropdown-item"
                             href="{{ request.scope.get('root_path', '') }}/cambiar-contrasena">Cambiar
                             Contraseña</a></li>
@@ -121,6 +148,29 @@
         window.uiAlert = (msg, title = "Aviso") => window.createDynamicModal(msg, title, false);
     </script>
     <script>
+        // Cambio de tema sin recargar: guarda la preferencia y, con "Según el sistema", sigue los cambios del SO
+        (function () {
+            const media = window.matchMedia('(prefers-color-scheme: dark)');
+            const root = document.documentElement;
+            function currentPref() { return root.getAttribute('data-theme-pref') || 'system'; }
+            function apply(pref) {
+                const theme = pref === 'dark' || (pref === 'system' && media.matches) ? 'dark' : 'light';
+                root.setAttribute('data-theme', theme);
+                root.setAttribute('data-bs-theme', theme);
+                root.setAttribute('data-theme-pref', pref);
+                document.querySelectorAll('.theme-opt').forEach(b => b.classList.toggle('active', b.dataset.themePref === pref));
+            }
+            window.setThemePreference = function (pref) {
+                try { localStorage.setItem('naviusm-theme', pref); } catch (e) { }
+                apply(pref);
+            };
+            media.addEventListener('change', () => { if (currentPref() === 'system') apply('system'); });
+            document.addEventListener('DOMContentLoaded', () => {
+                apply(currentPref());
+                document.querySelectorAll('.theme-opt').forEach(b => b.addEventListener('click', () => setThemePreference(b.dataset.themePref)));
+            });
+        })();
+
         document.addEventListener("DOMContentLoaded", () => {
             const currentPath = window.location.pathname.replace(/\/$/, "");
             document.querySelectorAll('#main-navbar .nav-link').forEach(link => {

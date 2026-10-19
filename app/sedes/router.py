@@ -2,6 +2,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.database import get_db
 from app.models import Usuario, Organizacion
 from app.security import get_current_user
@@ -10,6 +11,12 @@ from app.sedes.crud import create_sede, delete_sede, get_sedes_by_org
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 templates.env.cache = None
+# Mapa base para las páginas con mapa (editor y sedes); base.html lo expone como window.MAP_TILES
+templates.env.globals["map_tiles"] = {
+    "url": settings.map_tile_url,
+    "attribution": settings.map_tile_attribution,
+    "max_zoom": settings.map_tile_max_zoom,
+}
 
 @router.get("/admin")
 def admin_panel(request: Request, db: Session = Depends(get_db), user: Usuario = Depends(get_current_user)):

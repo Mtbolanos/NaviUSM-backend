@@ -25,6 +25,12 @@ class Settings(BaseSettings):
     geocoder_url: str = "https://photon.komoot.io/api/"
     geocoder_country: str = "CL"
     geocoder_user_agent: str = "NaviUSM/1.0"
+
+    # Mosaicos del mapa base. La política de tile.openstreetmap.org pide que la URL sea configurable
+    # (sin servicio garantizado) y atribución visible enlazando a /copyright
+    map_tile_url: str = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+    map_tile_attribution: str = '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors'
+    map_tile_max_zoom: int = 19                  # zoom máximo que entrega el servidor; más allá se amplía el último nivel
     
     @field_validator("secret_key")
     @classmethod

@@ -2,26 +2,28 @@
 {% block title %}<title>Gestión de Sedes - NaviUSM Studio</title>{% endblock %}
 {% block content %}
 
-<div class="container mt-5">
-  <div class="d-flex justify-content-between align-items-center mb-4">
-    <h3 style="color: var(--naviusm-text); font-weight: 700;">Sedes Administradas</h3>
-    <button class="btn-ed btn-ed-accent" data-bs-toggle="modal" data-bs-target="#newSedeModal">➕ Agregar Sede</button>
+<div class="page">
+ <div class="page-inner">
+  <div class="page-header">
+    <h3>Sedes administradas</h3>
+    <button class="btn-ed btn-ed-accent" data-bs-toggle="modal" data-bs-target="#newSedeModal">+ Agregar sede</button>
   </div>
 
   <div class="row">
     {% for sede in sedes %}
     <div class="col-md-4 mb-3">
-      <div class="card" style="background: var(--naviusm-surface2); border: 1px solid var(--naviusm-border);">
-        <div class="card-body">
-          <h5 class="card-title" style="color: var(--naviusm-text); font-weight: 600;">{{ sede.nombre }}</h5>
+      <div class="nv-card h-100 d-flex flex-column">
+        <div class="d-flex flex-column flex-grow-1">
+          <h5 style="color: var(--naviusm-text-strong); font-weight: 600;">{{ sede.nombre }}</h5>
           <p class="text-muted" style="font-size: 12px;">Lat: {{ sede.latitud }} | Lng: {{ sede.longitud }}</p>
-          <button class="btn-ed btn-ed-danger w-100 mt-2"
-            onclick="eliminarSede('{{ sede.id }}', '{{ sede.nombre }}')">Eliminar Sede</button>
+          <button class="btn-ed btn-ed-danger w-100 mt-auto" data-id="{{ sede.id }}" data-nombre="{{ sede.nombre }}"
+            onclick="eliminarSede(this.dataset.id, this.dataset.nombre)">Eliminar sede</button>
         </div>
       </div>
     </div>
     {% endfor %}
   </div>
+ </div>
 </div>
 
 <div class="modal fade" id="newSedeModal" tabindex="-1" aria-hidden="true">
@@ -50,7 +52,7 @@
             <div id="ns-search-results" class="list-group shadow mt-1"
               style="display: none; max-height: 200px; overflow-y: auto;"></div>
           </div>
-          <div id="ns-map" style="height: 380px; width: 100%; background: #0c1520;"></div>
+          <div id="ns-map" style="height: 380px; width: 100%; background: var(--naviusm-bg);"></div>
         </div>
 
         <div class="p-3 pb-2">
@@ -61,7 +63,7 @@
       <div class="modal-footer d-flex justify-content-between align-items-center">
         <!-- Display de Coordenadas en la izquierda -->
         <div style="font-size: 12px; color: var(--naviusm-muted); font-weight: bold; font-family: var(--naviusm-mono);">
-          📍 <span id="ns-lat-disp">-33.036577</span>, <span id="ns-lng-disp">-71.486578</span>
+          <span id="ns-lat-disp">-33.036577</span>, <span id="ns-lng-disp">-71.486578</span>
         </div>
         <!-- Botones a la derecha -->
         <div>
@@ -75,11 +77,10 @@
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
   window.SEDES_CONFIG = {
     rootPath: "{{ request.scope.get('root_path', '') }}"
   };
 </script>
-<script src="{{ url_for('static', path='js/gestion_sedes.js') }}?v=0.3.4"></script>
+<script src="{{ url_for('static', path='js/gestion_sedes.js') }}?v=0.5.1"></script>
 {% endblock %}
