@@ -224,6 +224,8 @@ def nodos_fuera_del_area(payload: PublishPayloadIn, lat_sede: float, lng_sede: f
 #   200 PublishResultOut        estado "publicado": sin defecto (puede traer advertencias de
 #                               accesibilidad, que nunca bloquean), o "publicado_forzado": con
 #                               defecto, forzado con el header X-Forzar-Publicacion (app/grafo/router.py)
+#                               o "sin_cambios": identico a la version vigente, no se crea version y
+#                               `version` es la vigente (diferencias_grafo, migracion 0010)
 # Todos los 422 traen `detail` en texto, que es lo que el editor muestra.
 
 class ValidacionOut(BaseModel):
@@ -236,7 +238,7 @@ class PublishResultOut(BaseModel):
     # cambiarle la respuesta a quien ya la consuma.
     message: str | None = None
     version: int
-    estado: str = "publicado"  # publicado | publicado_forzado
+    estado: str = "publicado"  # publicado | publicado_forzado | sin_cambios
     validacion: ValidacionOut = Field(default_factory=ValidacionOut)
     # Duración de cada etapa en milisegundos (publicacion, nivel3, total), medida en el router.
     # `total` va desde que entra la solicitud al handler: no incluye leer el cuerpo ni el Nivel 2,

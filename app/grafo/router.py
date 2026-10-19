@@ -1,3 +1,5 @@
+import copy
+import json
 import logging
 import time
 from urllib.parse import unquote
@@ -5,6 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -15,6 +18,7 @@ from app.grafo.crud import (
     VersionConflictError,
     apply_building_changes,
     get_latest_snapshot,
+    normalize_buildings,
     publish_graph_data,
 )
 from app.grafo.schemas import (
@@ -23,7 +27,7 @@ from app.grafo.schemas import (
     PublishResultOut,
     nodos_fuera_del_area,
 )
-from app.models import Publicacion, Sede, Usuario
+from app.models import Publicacion, Sede, Snapshot, Usuario
 from app.security import get_current_user
 from app.validacion.topologia import RevisionNivel3, revisar_topologia
 
@@ -44,6 +48,7 @@ PUBLISH_ADV_MSG = "Grafo publicado: conectividad íntegra, con advertencias que 
 PUBLISH_ADV_NO_EVALUABLE_MSG = "Grafo publicado con advertencias que no bloquean"
 PUBLISH_SIN_N3_MSG = "Grafo publicado sin validación topológica: el Nivel 3 falló"
 FORZADO_MSG = "Grafo publicado forzado, con defectos de conectividad: ver advertencias"
+SIN_CAMBIOS_MSG = "Sin cambios respecto a la versión vigente: no se creó una versión nueva"
 
 # Override del bloqueo del Nivel 3 (decision 0003): el motivo del admin viaja en este header y no
 # en el cuerpo, porque el cuerpo es el artefacto que se publica y validar no puede alterarlo.
@@ -69,6 +74,30 @@ def _mensaje(revision: RevisionNivel3, forzado: bool) -> str:
     if not revision.validacion.advertencias:
         return PUBLISH_MSG
     return PUBLISH_ADV_MSG if revision.reporte.conectividad_integra else PUBLISH_ADV_NO_EVALUABLE_MSG
+
+
+def _version_sin_cambios(db: Session, sede_id, payload: dict) -> int | None:
+    """La versión vigente si el payload no la cambia; None si cambia, si no hay vigente o si no se pudo comparar.
+
+    La regla de qué cuenta como cambio vive en la base (diferencias_grafo, migracion 0010), la misma
+    que usa el trigger de snapshot. Se compara contra una copia normalizada, porque publish_graph_data
+    normaliza antes de guardar y la vigente ya esta normalizada. Si la comparación falla se publica
+    igual: no poder comparar no es motivo para frenar una publicación.
+    """
+    try:
+        vigente = get_latest_snapshot(db, sede_id)
+        if vigente is None:
+            return None
+        nuevo = copy.deepcopy(payload)
+        normalize_buildings(nuevo)
+        diferencia = db.execute(
+            text("SELECT public.diferencias_grafo(CAST(:a AS jsonb), CAST(:b AS jsonb))"),
+            {"a": json.dumps(vigente.payload), "b": json.dumps(nuevo)},
+        ).scalar()
+        return vigente.version if diferencia is None else None
+    except Exception:
+        logger.exception("no se pudo comparar con la version vigente sede=%s; se publica", sede_id)
+        return None
 
 
 def _get_sede(db: Session, sede_id: UUID, user: Usuario) -> Sede:
@@ -137,6 +166,22 @@ def _publish(
     UPDATE de la sede). No toca la respuesta: el registro no lanza.
     """
     tiempos = dict(tiempos or {})
+    # Sin cambios respecto a la vigente: no se escribe nada ni se crea versión (antes del N3: no hay
+    # nada nuevo que validar, y una vigente publicada con override no debe quedar bloqueada al repetirla).
+    # El X-Base-Version no se revisa en este camino: un envío idéntico no puede pisar el trabajo de otro.
+    t = time.perf_counter()
+    vigente = _version_sin_cambios(db, sede.id, payload)
+    tiempos["comparacion"] = _ms(t)
+    if vigente is not None:
+        db.rollback()
+        tiempos["total"] = _ms(inicio)
+        logger.info("publicacion sin cambios sede=%s version=%d tiempos_ms=%s", sede.id, vigente, tiempos)
+        registro.registrar(
+            **ctx, resultado="sin_cambios", status_http=200, tiempos_ms=tiempos, conteos=registro.conteos(payload),
+        )
+        cuerpo = PublishResultOut(message=SIN_CAMBIOS_MSG, version=vigente, estado="sin_cambios", tiempos_ms=tiempos)
+        return JSONResponse(cuerpo.model_dump(), headers={VERSION_HEADER: str(vigente)})
+
     t = time.perf_counter()
     revision = revisar_topologia(payload)
     tiempos["nivel3"] = _ms(t)
@@ -282,6 +327,31 @@ def get_admin_snapshot(
         snapshot.payload,
         headers={VERSION_HEADER: str(snapshot.version), "Cache-Control": "no-store"},
     )
+
+
+# Versiones publicadas de una sede con lo que cambió en cada una (snapshot.cambios, migracion 0010),
+# sin el grafo completo. Misma auth y filtro por organizacion que el historial de ejecuciones.
+@router.get("/admin/api/sedes/{sede_id}/versiones")
+def get_versiones(
+    sede_id: UUID,
+    limit: int = Query(50, ge=1, le=500),
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(get_current_user),
+):
+    filas = (
+        db.query(Snapshot.version, Snapshot.published_at, Snapshot.cambios, Snapshot.restaurada_de)
+        .filter(Snapshot.sede_id == sede_id, Snapshot.organizacion_id == user.organizacion_id)
+        .order_by(Snapshot.version.desc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        {
+            "version": f.version, "published_at": f.published_at.isoformat() if f.published_at else None,
+            "cambios": f.cambios, "restaurada_de": f.restaurada_de,
+        }
+        for f in filas
+    ]
 
 
 # Historial de ejecuciones del publish (tabla publicacion): misma auth y filtro por organizacion
