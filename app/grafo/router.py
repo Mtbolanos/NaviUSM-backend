@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
+from sqlalchemy.exc import DataError, IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -100,6 +101,48 @@ def _version_sin_cambios(db: Session, sede_id, payload: dict) -> int | None:
         return None
 
 
+# Reglas del esquema (Nivel 1) con nombre propio: cuando PostgreSQL rechaza una escritura, el editor
+# recibe un 422 que dice que regla fallo, en vez de un 500. Las de unicidad son diferidas (migracion
+# 0011) y fallan en el commit de publish_graph_data, que igual ocurre dentro de _publish_version.
+REGLAS_N1 = {
+    "chk_arista_distancia_positiva": "una arista tiene distancia 0 o negativa",
+    "excl_arista_par_unico": "hay dos aristas entre el mismo par de nodos (en cualquier dirección)",
+    "excl_nodo_coordenada_piso": "hay dos nodos en la misma coordenada y el mismo piso",
+    "chk_nodo_coordenadas_rango": "un nodo tiene coordenadas fuera de rango (latitud ±90, longitud ±180)",
+    "chk_zona_geometria_valida": "una zona tiene una geometría inválida (polígono que se cruza o con puntos insuficientes)",
+    "chk_origen_destino": "una arista une un nodo consigo mismo",
+}
+
+
+def _zonas_invalidas(db: Session, payload: dict) -> list[str]:
+    """Nombres (o ids) de las zonas del envío cuya geometría PostGIS considera inválida. Vacío si no se pudo ver."""
+    try:
+        filas = db.execute(text("""
+            SELECT coalesce(nullif(z->>'name', ''), z->>'id')
+            FROM jsonb_array_elements(CAST(:zonas AS jsonb)) z
+            WHERE NOT public.ST_IsValid(public.ST_GeomFromGeoJSON((z->'geojson')::text))
+        """), {"zonas": json.dumps(payload.get("zonas", []))}).scalars().all()
+        db.rollback()
+        return list(filas)
+    except Exception:
+        db.rollback()
+        return []
+
+
+def _detalle_n1(exc: Exception, db: Session, payload: dict) -> str:
+    """Texto legible del rechazo del esquema: la regla si tiene nombre propio, si no el error de PostgreSQL."""
+    diag = getattr(getattr(exc, "orig", None), "diag", None)
+    regla = getattr(diag, "constraint_name", None)
+    if regla == "chk_zona_geometria_valida":
+        cuales = _zonas_invalidas(db, payload)
+        if cuales:
+            return f"Regla del esquema (Nivel 1): {REGLAS_N1[regla]}: {', '.join(cuales)} ({regla})"
+    if regla in REGLAS_N1:
+        return f"Regla del esquema (Nivel 1): {REGLAS_N1[regla]} ({regla})"
+    primaria = getattr(diag, "message_primary", None) or str(getattr(exc, "orig", exc)).splitlines()[0]
+    return f"Regla del esquema (Nivel 1): {primaria[:300]}"
+
+
 def _get_sede(db: Session, sede_id: UUID, user: Usuario) -> Sede:
     sede = db.query(Sede).filter(Sede.id == sede_id, Sede.organizacion_id == user.organizacion_id).first()
     if not sede:
@@ -119,6 +162,9 @@ def _publish_version(db: Session, sede: Sede, payload: dict, org_id, base_versio
     except VersionConflictError as exc:
         db.rollback()
         raise HTTPException(409, CONFLICT_MSG, headers={VERSION_HEADER: str(exc.current)})
+    except (IntegrityError, DataError) as exc:
+        db.rollback()
+        raise HTTPException(422, _detalle_n1(exc, db, payload))
 
 
 def _contexto(request: Request, sede: Sede, user: Usuario, origen: str) -> dict:

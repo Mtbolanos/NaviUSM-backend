@@ -1104,3 +1104,34 @@ $$;
 DROP TRIGGER IF EXISTS snapshot_cambios ON public.snapshot;
 CREATE TRIGGER snapshot_cambios BEFORE INSERT ON public.snapshot
     FOR EACH ROW EXECUTE FUNCTION public.snapshot_calcular_cambios();
+
+-- 0011 (Alembic): reglas del Nivel 1 (distancia positiva, una arista por par, un nodo por coordenada y piso,
+-- coordenadas en rango, geometria valida en zonas). Mismo contenido que migrations/versions/0011_reglas_n1.py
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_arista_distancia_positiva') THEN
+        ALTER TABLE public.arista ADD CONSTRAINT chk_arista_distancia_positiva CHECK (distancia > 0);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'excl_arista_par_unico') THEN
+        ALTER TABLE public.arista ADD CONSTRAINT excl_arista_par_unico
+            EXCLUDE USING btree ((LEAST(origen_id, destino_id)) WITH =, (GREATEST(origen_id, destino_id)) WITH =)
+            DEFERRABLE INITIALLY DEFERRED;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'excl_nodo_coordenada_piso') THEN
+        ALTER TABLE public.nodo ADD CONSTRAINT excl_nodo_coordenada_piso
+            EXCLUDE USING btree (sede_id WITH =, piso WITH =, (public.ST_X(geom)) WITH =, (public.ST_Y(geom)) WITH =)
+            DEFERRABLE INITIALLY DEFERRED;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_nodo_coordenadas_rango') THEN
+        ALTER TABLE public.nodo ADD CONSTRAINT chk_nodo_coordenadas_rango
+            CHECK (public.ST_X(geom) BETWEEN -180 AND 180 AND public.ST_Y(geom) BETWEEN -90 AND 90);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_zona_geometria_valida') THEN
+        ALTER TABLE public.zona ADD CONSTRAINT chk_zona_geometria_valida CHECK (public.ST_IsValid(geom));
+    END IF;
+END $$;
+
+COMMENT ON CONSTRAINT chk_arista_distancia_positiva ON public.arista IS 'Nivel 1: la distancia de una arista es mayor que 0.';
+COMMENT ON CONSTRAINT excl_arista_par_unico ON public.arista IS 'Nivel 1: una sola arista por par de nodos, en cualquier direccion. Diferida: se revisa en el COMMIT.';
+COMMENT ON CONSTRAINT excl_nodo_coordenada_piso ON public.nodo IS 'Nivel 1: un solo nodo por coordenada y piso en cada sede. Diferida: se revisa en el COMMIT.';
+COMMENT ON CONSTRAINT chk_nodo_coordenadas_rango ON public.nodo IS 'Nivel 1: longitud entre -180 y 180, latitud entre -90 y 90.';
+COMMENT ON CONSTRAINT chk_zona_geometria_valida ON public.zona IS 'Nivel 1: la geometria de la zona es valida (ST_IsValid).';
