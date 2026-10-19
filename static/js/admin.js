@@ -399,8 +399,8 @@ function restoreBaseStatus() {
 window.addEventListener('load', () => {
   // Renderizador Canvas: permite 'tolerance', que agrega margen de clic alrededor de líneas y polígonos
   // En el editor de edificio, maxBoundsViscosity 1: el borde del área es firme (no se arrastra afuera)
-  // En el editor de edificio el zoom llega a un nivel más que el máximo de los mosaicos: más allá se pixela
-  const maxZoom = IS_BUILDING ? MAP_TILES.max_zoom + 1 : 22;
+  // El zoom llega a 22 aunque los mosaicos lleguen a max_zoom: más allá se amplía el último nivel (se pixela)
+  const maxZoom = 22;
   map = L.map('map', { zoomControl: false, maxZoom, maxBoundsViscosity: IS_BUILDING ? 1.0 : 0, renderer: L.canvas({ tolerance: 8 }) });
   L.control.zoom({ position: 'bottomright' }).addTo(map);
   // Más allá de max_zoom no se piden mosaicos: Leaflet amplía los del último nivel disponible
@@ -2230,7 +2230,8 @@ window.applyFloorsModal = async function () {
 //   Ascensor: una parada (nodo) por piso, normalmente en la misma posición; se unen de piso en piso.
 //   Escalera / rampa: tramos. Cada tramo empieza en un punto de un piso y termina en otro punto del
 //   piso siguiente. En un piso intermedio hay una llegada (fin del tramo de abajo) y una salida (inicio
-//   del tramo de arriba), unidas por el descanso; si son el mismo nodo, la escalera sigue recta.
+//   del tramo de arriba); si son el mismo nodo, la escalera sigue recta. Si son distintos, no se unen
+//   solos: el camino entre ellas (recto, en L, etc.) lo dibuja el usuario.
 // Las aristas de los tramos de una escalera llevan es_escalera (la ruta accesible las evita).
 // =============================================================================
 function isFlightType(tipo) {
@@ -2584,22 +2585,8 @@ function finishConnectorPlacement() {
         const start = f.start.sameAs !== undefined ? ends[f.start.sameAs] : materializeStop(f.start, pl.floors[k], cid);
         const end = materializeStop(f.end, pl.floors[k + 1], cid);
         addEdgeRaw(start.id, end.id, pl.tipo === 'escalera');
-        // descanso: la llegada del tramo anterior y la salida de este, en el mismo piso
-        const arrival = ends[k - 1];
-        if (arrival && arrival.id !== start.id) addEdgeRaw(arrival.id, start.id, false);
         ends[k] = end;
       });
-      // al agregar un tramo a un conector existente, el nodo nuevo del piso compartido se une a su parada más cercana
-      if (pl.connectorId) {
-        const created = new Set(connectorStops(cid).map(n => n.id));
-        connectorStops(cid).forEach(n => {
-          const sameFloor = connectorStops(cid).filter(o => o.id !== n.id && o.floor === n.floor);
-          if (sameFloor.length && !edges.some(e => (e.from === n.id && sameFloor.some(o => o.id === e.to)) || (e.to === n.id && sameFloor.some(o => o.id === e.from)))) {
-            const nearest = sameFloor.sort((a, b) => a.latlng.distanceTo(n.latlng) - b.latlng.distanceTo(n.latlng))[0];
-            if (created.has(nearest.id)) addEdgeRaw(n.id, nearest.id, false);
-          }
-        });
-      }
     } else {
       pl.stops.forEach((st, floor) => materializeStop(st, floor, cid));
       rebuildConnectorEdges(cid);
@@ -2652,7 +2639,7 @@ window.saveConnectorEdit = function (cid) {
     const c = connectors.find(x => x.id === cid);
     c.tipo = tipo;
     c.nombre = nombre;
-    // los tramos (entre pisos distintos) de una escalera llevan es_escalera; los descansos no
+    // los tramos (entre pisos distintos) de una escalera llevan es_escalera; las aristas dentro de un piso no
     const stops = connectorStops(cid);
     const byId = new Map(stops.map(n => [n.id, n]));
     edges.forEach(e => {
