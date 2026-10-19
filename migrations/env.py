@@ -8,8 +8,8 @@ Dos decisiones deliberadas, documentadas aca porque no son obvias:
    del contenedor, donde ``DATABASE_URL`` apunta a otro host.
 
 2. ``target_metadata`` es None A PROPOSITO, y ``--autogenerate`` esta bloqueado.
-   El esquema tiene 14 tablas y ``app/models.py`` declara solo 7 modelos ORM: las tablas
-   con geometria (nodo, arista, poi, zona, zona_caracteristica, ruta_evacuacion,
+   El esquema tiene 16 tablas y ``app/models.py`` declara solo 9 modelos ORM: las 7 tablas
+   del grafo y las zonas (nodo, arista, poi, zona, zona_caracteristica, ruta_evacuacion,
    ruta_evacuacion_arista) se acceden con SQL crudo porque el proyecto no usa GeoAlchemy2.
    Autogenerate compara los modelos contra la base y concluye que esas 7 tablas "sobran":
    generaria una migracion que BORRA el grafo completo.
@@ -48,8 +48,8 @@ target_metadata = None
 
 _MENSAJE_AUTOGENERATE = (
     "--autogenerate esta deshabilitado en este proyecto.\n"
-    "Motivo: app/models.py declara 7 modelos para 14 tablas; las tablas con geometria\n"
-    "no tienen modelo ORM, y autogenerate generaria una migracion que las BORRA\n"
+    "Motivo: app/models.py declara 9 modelos para 16 tablas; las 7 tablas del grafo y\n"
+    "las zonas no tienen modelo ORM, y autogenerate generaria una migracion que las BORRA\n"
     "(nodo, arista, poi, zona, zona_caracteristica, ruta_evacuacion,\n"
     "ruta_evacuacion_arista).\n\n"
     "Escribe la migracion a mano:\n"

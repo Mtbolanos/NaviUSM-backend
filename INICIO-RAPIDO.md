@@ -55,17 +55,23 @@ Abrir `http://localhost:8000/admin` e iniciar sesión con el `ADMIN_EMAIL` y la 
 
 ## Si alguien ya tiene una base con datos reales de antes (no un clone limpio)
 
-No corran `schema_actualizado.sql` completo de nuevo: apliquen las migraciones de `migraciones/` que falten, en orden (no borran datos; respaldar antes). Ver `docs/BASE-DE-DATOS.md`.
+No corran `schema_actualizado.sql` completo de nuevo. Los cambios de `migraciones/003`–`005` (y la
+tabla `api_key`) ya están en la cadena de Alembic como revisiones `0004`–`0008`. Respaldar antes y:
 
-Funciona sobre una base que quedó en el esquema viejo: le crea las tablas que le falten y deja
-intactos los datos existentes. Reemplaza al `psql -f migracion_zonas_salas.sql` de antes (ese
-archivo se conserva solo como referencia histórica).
+- Base que ya tiene aplicadas a mano `migraciones/003`–`005` (como producción): `alembic stamp head`,
+  después de comprobar que su esquema es el de `schema_actualizado.sql`. No ejecuta nada.
+- Base más vieja (todavía con `piso_min`/`piso_max`) o que ya tiene `alembic_version`:
+  `alembic upgrade head`. Le crea lo que le falte y deja intactos los datos existentes.
+
+El detalle, y por qué producción va con `stamp` y no con `upgrade`, está en `docs/MIGRACIONES.md`.
+Los `.sql` de `migraciones/` y `migracion_zonas_salas.sql` se conservan solo como referencia
+histórica.
 
 Ver también `docker/README.md` para más detalle sobre el setup de Docker.
 
 ## Más documentación
 
-- `docs/MIGRACIONES.md` — cómo versionar cambios de esquema con Alembic, y por qué `--autogenerate` está deshabilitado. Ojo: la cadena de Alembic (`migrations/`) todavía no incluye `migraciones/003`–`005`; por ahora el procedimiento vigente es el de `docs/BASE-DE-DATOS.md`.
+- `docs/MIGRACIONES.md` — cómo versionar cambios de esquema con Alembic, y por qué `--autogenerate` está deshabilitado. La cadena (`migrations/`) ya incluye `migraciones/003`–`005` como revisiones `0004`–`0008`.
 - `docs/CHANGELOG.md` — resumen de todo el trabajo de la sesión que agregó Zonas/Salas/Docker, agrupado por tema.
 - `docs/CAMBIOS-JSON-SNAPSHOT.md` — cómo cambió la forma del JSON público (pisos de edificio en el formato 2.2, key `zonas`, campos de nodos tipo `servicio`).
 - `docs/BASE-DE-DATOS.md` — tablas, relaciones, qué se escribe al publicar y cómo aplicar migraciones.

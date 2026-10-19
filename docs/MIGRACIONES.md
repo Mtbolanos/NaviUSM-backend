@@ -39,12 +39,12 @@ entran a git, y el mismo comando sirve en el host y en el contenedor.
 **No lo habilites sin leer esto.**
 
 Autogenerate compara los modelos ORM contra la base y escribe la diferencia. El problema es que
-en este proyecto los modelos **no describen la base completa**: el esquema tiene 14 tablas y
-`app/models.py` declara 7 modelos. Las tablas con geometría —`nodo`, `arista`, `poi`, `zona`,
+en este proyecto los modelos **no describen la base completa**: el esquema tiene 16 tablas y
+`app/models.py` declara 9 modelos. Las tablas del grafo y de zonas —`nodo`, `arista`, `poi`, `zona`,
 `zona_caracteristica`, `ruta_evacuacion`, `ruta_evacuacion_arista`— se acceden con SQL crudo
 porque el proyecto no usa GeoAlchemy2.
 
-Entonces autogenerate ve 14 tablas en la base y 7 en el código, concluye que sobran 7, y
+Entonces autogenerate ve 16 tablas en la base y 9 en el código, concluye que sobran 7, y
 **genera una migración que borra el grafo completo.**
 
 `migrations/env.py` lo bloquea con una excepción explícita, antes de escribir archivo alguno.
@@ -75,6 +75,51 @@ Si algún día se completan los 7 modelos faltantes (con GeoAlchemy2), se puede 
 |---|---|
 | `0001` | Baseline. No-op: representa el esquema base de 10 tablas tal como lo deja `schema_actualizado.sql` |
 | `0002` | Las 4 tablas de zonas y salas, las 3 columnas de contacto de `poi`, sus índices, RLS y el catálogo inicial. Es el contenido de `migracion_zonas_salas.sql` |
+| `0003` | `arista.es_escalera` (boolean, default false) |
+| `0004` | Tabla `api_key` e índice `idx_api_key_organizacion`. Reconstruida del bloque final de `schema_actualizado.sql` (el `migraciones/002_api_keys.sql` que cita no existe en el repo) |
+| `0005` | Tabla `edificio_piso` (con RLS), `edificio.piso_acceso`, conversión de `piso_min`/`piso_max` a filas de `edificio_piso` y borrado de esas columnas. Es `migraciones/003_edificio_pisos.sql` sin el `DROP TABLE sala` |
+| `0006` | Tabla `conector` (con RLS e índice) y `nodo.conector_id` con su índice. Es `migraciones/004_conectores.sql` |
+| `0007` | `sede.contorno` (Polygon 4326, opcional). Es `migraciones/005_sede_contorno.sql` |
+| `0008` | Borra la tabla `sala` (redundante con `poi`). Es el final de `migraciones/003_edificio_pisos.sql` |
+
+Las 0004–0008 portan a la cadena cambios que se aplicaron a mano con los `.sql` de `migraciones/`.
+Son idempotentes (`IF [NOT] EXISTS`, y la conversión de pisos solo corre si `piso_min` existe), y
+tienen `downgrade()` real. Los downgrade de 0005 y 0008 son con pérdida: 0005 vuelve al rango
+`piso_min`/`piso_max` (menor y mayor piso registrado) y pierde nombres de piso, huecos y
+`piso_acceso`; 0008 recrea `sala` vacía.
+
+Verificado sobre bases desechables: el dump de `191c032` + `upgrade head` da exactamente el mismo
+`pg_dump --schema-only` que el `schema_actualizado.sql` actual, y `downgrade 0003` devuelve
+exactamente el esquema de `191c032`.
+
+## Bases que ya existían antes de esta cadena
+
+Depende de en qué estado esté la base. **Respaldar antes** en todos los casos
+(`pg_dump -Fc`).
+
+**Producción (y cualquier base con `migraciones/003`–`005` ya aplicadas a mano, o creada con el
+`schema_actualizado.sql` actual):** el esquema ya está en `head`; solo falta que Alembic lo sepa.
+
+```bash
+# 1. Comprobar que el esquema es el de head (no debe haber diferencias)
+pg_dump --schema-only --no-owner --no-privileges -d naviusm > actual.sql
+#    ...y compararlo con el de una base desechable creada con schema_actualizado.sql
+# 2. Registrar la revisión, sin ejecutar nada
+alembic stamp head
+```
+
+Se usa `stamp` y no `upgrade head` aunque las migraciones sean idempotentes, porque `upgrade head`
+sí escribe algo en una base que ya está al día: la 0002 vuelve a sembrar el catálogo de
+`caracteristica` si falta alguna fila, la 0005 inserta el piso de acceso en todo edificio que no
+tenga pisos, y la 0002 crea `sala` para que la 0008 la borre. Con `stamp` no se toca nada.
+
+**Base anterior a `migraciones/003`** (tiene `piso_min`/`piso_max`, sin `alembic_version`):
+`alembic upgrade head`. Convierte los rangos de piso a `edificio_piso` y deja el esquema en `head`.
+
+**Base que ya tiene `alembic_version`** (en `0002` o `0003`): `alembic upgrade head`.
+
+Si `alembic stamp` se hizo sobre una base que en realidad no estaba al día, el error no se ve
+hasta que falle una consulta: por eso el paso 1.
 
 ### Por qué el baseline es un no-op
 
@@ -83,18 +128,21 @@ El esquema base ya existe en las bases en uso, y en una base nueva lo crea
 líneas de dump como código de migración solo agregaría una segunda definición del mismo esquema,
 que se puede desincronizar de la primera.
 
-La consecuencia práctica es buena: **`alembic upgrade head` funciona en los dos escenarios y no
-hace falta `alembic stamp`.**
+La consecuencia práctica: **`alembic upgrade head` funciona desde cualquier punto de partida**,
+porque todas las revisiones son idempotentes.
 
 - Base con el esquema base (10 tablas): crea `alembic_version`, pasa por 0001 sin hacer nada, y
-  0002 le crea las 4 tablas que le faltan.
-- Base creada con el dump completo (14 tablas): pasa por 0001 sin hacer nada, y 0002 tampoco hace
-  nada porque es idempotente (`IF NOT EXISTS` / `ON CONFLICT`).
+  0002 le crea las 4 tablas que le faltan; de ahí en adelante, cada revisión aplica lo suyo.
+- Base creada con el dump completo actual (16 tablas): ninguna revisión cambia el esquema (la 0002
+  crea `sala` y la 0008 la borra). Aun así, para producción se recomienda `alembic stamp head`;
+  ver «Bases que ya existían antes de esta cadena».
 
 ## Los `.sql` antiguos se conservan
 
 `schema_actualizado.sql` sigue siendo el baseline que aplica `docker/init/01-init.sh`, y
-`migracion_zonas_salas.sql` queda como referencia histórica de dónde salió la revisión 0002. No
+`migracion_zonas_salas.sql` y `migraciones/003`–`005` quedan como referencia histórica de dónde
+salieron las revisiones 0002 y 0004–0008. Una base creada con el `schema_actualizado.sql` actual
+ya está en `head`: `alembic stamp head`. No
 los borres: de ahí en adelante, sin embargo, **todo cambio de esquema va como migración**, no como
 edición del dump.
 
