@@ -62,6 +62,6 @@
 </div>
 
 <script type="application/json" id="page-config">{{ {"sedesInfo": sedes_json} | tojson }}</script>
-<script src="{{ url_for('static', path='js/pisos.js') }}?v=0.9.3"></script>
-<script src="{{ url_for('static', path='js/gestion_edificios.js') }}?v=0.9.3"></script>
+<script src="{{ asset('js/pisos.js') }}"></script>
+<script src="{{ asset('js/gestion_edificios.js') }}"></script>
 {% endblock %}

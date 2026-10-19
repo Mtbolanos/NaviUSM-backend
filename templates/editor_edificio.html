@@ -26,6 +26,6 @@
 </div>
 
 <script type="application/json" id="page-config">{{ {"sedesInfo": sedes_json, "scope": "building", "initialBuilding": edificio_inicial} | tojson }}</script>
-<script src="{{ url_for('static', path='js/pisos.js') }}?v=0.9.3"></script>
-<script src="{{ url_for('static', path='js/admin.js') }}?v=0.9.3"></script>
+<script src="{{ asset('js/pisos.js') }}"></script>
+<script src="{{ asset('js/admin.js') }}"></script>
 {% endblock %}

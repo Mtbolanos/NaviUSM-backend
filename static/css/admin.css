@@ -1962,3 +1962,103 @@ label.panel-label {
 :root[data-theme="light"] .nv-badge-warn {
   color: #9a5a00;
 }
+
+/* ===== Responsividad =====
+   Celular (< 576px) y tablet: sin scroll horizontal de la página. La barra de herramientas del editor se
+   desplaza horizontalmente dentro de sí misma cuando no cabe. */
+.floor-row > * {
+  min-width: 0;
+}
+
+.floor-row input.form-control {
+  width: 100%;
+}
+
+.floor-add {
+  flex-wrap: wrap;
+}
+
+#main-navbar {
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+@media (max-width: 767px) {
+  .navbar-custom {
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+    gap: 8px;
+  }
+
+  .navbar-custom .navbar-brand {
+    margin-right: 4px !important;
+  }
+
+  /* Los enlaces se desplazan dentro de la barra; el menú de usuario queda siempre visible */
+  #main-navbar {
+    flex: 1 1 auto;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  #main-navbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .navbar-custom .nav-link {
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+
+  .topbar {
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+  }
+
+  .topbar > * {
+    flex-shrink: 0;
+  }
+
+  .page {
+    padding: 20px 12px 48px;
+  }
+
+  .page-footer {
+    margin-left: -12px;
+    margin-right: -12px;
+    padding: 0 12px;
+  }
+
+  .nv-card {
+    padding: 14px;
+  }
+
+  .page-header h3 {
+    font-size: 22px;
+  }
+}
+
+@media (max-width: 575px) {
+  .navbar-brand sub {
+    display: none;
+  }
+
+  #footer-status {
+    display: none;
+  }
+
+  .page-footer-inner .btn {
+    flex: 1 1 0;
+  }
+
+  .header-search,
+  .header-search input {
+    width: 100%;
+  }
+
+  .map-panel {
+    width: min(230px, calc(100vw - 24px));
+  }
+}
