@@ -13,14 +13,14 @@
         {% endfor %}
       </select>
     </div>
+    <div class="search-box header-search">
+      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="bld-search" type="search" class="form-control form-control-sm" placeholder="Buscar edificio" autocomplete="off" oninput="renderLista()" aria-label="Buscar edificio">
+    </div>
   </div>
 
   <div class="nv-card">
     <div class="bld-toolbar">
-      <div class="search-box">
-        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-        <input id="bld-search" type="search" class="form-control form-control-sm" placeholder="Buscar edificio" autocomplete="off" oninput="renderLista()">
-      </div>
       <p class="panel-meta mb-0">Los pisos se muestran de arriba hacia abajo. Al cambiar el número de un piso, sus puntos se mueven con él.
         Las salas se crean como puntos "Entrada / Sala" en el mapa.</p>
     </div>
@@ -67,5 +67,5 @@
     sedesInfo: {{ sedes_json | tojson }}
   };
 </script>
-<script src="{{ url_for('static', path='js/gestion_edificios.js') }}?v=0.7.3"></script>
+<script src="{{ url_for('static', path='js/gestion_edificios.js') }}?v=0.7.4"></script>
 {% endblock %}

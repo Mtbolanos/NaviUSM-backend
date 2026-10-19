@@ -1376,7 +1376,7 @@ kbd {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 0;
+  padding: 8px 0;
 }
 
 /* Con barra inferior: el contenido ocupa el alto disponible y la barra queda abajo aunque haya poco contenido */
@@ -1398,10 +1398,18 @@ kbd {
 /* Encabezado fijo arriba al hacer scroll (título y selector de sede siempre visibles) */
 .page-header-sticky {
   position: sticky;
-  top: -32px;                 /* compensa el padding superior de .page */
+  top: -32px;                 /* compensa el padding superior de .page: queda pegado arriba */
   z-index: 5;
-  margin: -32px -24px 20px;
-  padding: 32px 24px 14px;
+  margin: -32px -24px 16px;
+  padding: 18px 24px 10px;
   background: var(--naviusm-bg);
-  border-bottom: 1px solid transparent;
+}
+
+.page-header-sticky h3 {
+  font-size: 1.35rem;
+}
+
+.header-search {
+  width: 280px;
+  max-width: 100%;
 }
