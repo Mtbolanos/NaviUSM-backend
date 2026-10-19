@@ -1854,6 +1854,9 @@ label.panel-label {
 
 .main {
   position: relative;
+  /* Contexto de apilamiento propio: los paneles y pastillas del mapa (z-index 1000+) no quedan
+     sobre el menú del usuario de la barra de navegación */
+  isolation: isolate;
 }
 
 /* ===== Gestión de sedes: mapa de nueva sede ===== */
