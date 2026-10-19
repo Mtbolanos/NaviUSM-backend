@@ -1383,6 +1383,8 @@ kbd {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  /* El diseño de la tabla depende del ancho de su contenedor (tarjeta o ventana), no de la pantalla */
+  container-type: inline-size;
 }
 
 .floor-row {
@@ -1434,14 +1436,6 @@ kbd {
   background: var(--naviusm-bg);
 }
 
-@media (max-width: 760px) {
-  .floor-row {
-    grid-template-columns: 70px 1fr;
-  }
-  .floor-header {
-    display: none;
-  }
-}
 
 /* ===== Barra inferior fija de páginas con guardado (Gestión de Edificios) ===== */
 .page-footer {
@@ -1729,27 +1723,7 @@ kbd {
 .floor-row > :nth-child(4) { grid-area: puntos; }
 .floor-row > :nth-child(5) { grid-area: acciones; }
 
-@media (max-width: 991px) {
-  .floor-row,
-  #floors-editor .floor-row {
-    grid-template-columns: 80px 1fr;
-    grid-template-areas:
-      "num name"
-      "acceso puntos"
-      ". acciones";
-    row-gap: 6px;
-    padding-bottom: 10px;
-    border-bottom: 1px solid var(--naviusm-border);
-  }
 
-  .floor-row.floor-header {
-    display: none;
-  }
-
-  .floor-actions {
-    justify-content: start;
-  }
-}
 
 /* ===== Barra de navegación ===== */
 #main-navbar {
@@ -2061,4 +2035,48 @@ label.panel-label {
   .map-panel {
     width: min(230px, calc(100vw - 24px));
   }
+}
+
+/* Tabla de pisos angosta: dos líneas por piso. Número y nombre arriba; acceso, puntos y acciones
+   del mismo piso abajo, para que queden asociados a ese piso. */
+@container (max-width: 680px) {
+  .floor-row,
+  #floors-editor .floor-row {
+    grid-template-columns: 72px minmax(0, 1fr) auto;
+    grid-template-areas:
+      "num name name"
+      "acceso puntos acciones";
+    row-gap: 6px;
+    padding: 8px 0 10px;
+    border-bottom: 1px solid var(--naviusm-border);
+  }
+
+  .floor-row.floor-header {
+    display: none;
+  }
+
+  .floor-actions {
+    grid-template-columns: auto auto;
+    justify-content: end;
+  }
+}
+
+@container (max-width: 380px) {
+  .floor-row,
+  #floors-editor .floor-row {
+    grid-template-columns: 64px minmax(0, 1fr);
+    grid-template-areas:
+      "num name"
+      "acceso puntos"
+      "acciones acciones";
+  }
+
+  .floor-actions {
+    justify-content: start;
+  }
+}
+
+/* Ventana de pisos: usa el ancho disponible (Bootstrap la deja en 500px bajo 992px) */
+#floorsModal .modal-dialog {
+  max-width: min(1140px, calc(100vw - 32px));
 }
