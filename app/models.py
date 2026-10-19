@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Boolean, ForeignKey, DateTime, Integer, func, Numeric
+from sqlalchemy import Column, String, Boolean, ForeignKey, DateTime, Integer, func, Numeric, Text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from app.database import Base
@@ -60,6 +60,27 @@ class Snapshot(Base):
 
     sede = relationship("Sede", back_populates="snapshots")
     organizacion = relationship("Organizacion", back_populates="snapshots")
+
+
+class Publicacion(Base):
+    """Una ejecucion del pipeline de publicacion (exito o rechazo). Tabla aparte de snapshot para
+    sobrevivir a la retencion; la escribe app/grafo/registro.py. Ver la migracion 0009."""
+    __tablename__ = "publicacion"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
+    sede_id = Column(UUID(as_uuid=True), ForeignKey("sede.id", ondelete="CASCADE"), nullable=False)
+    organizacion_id = Column(UUID(as_uuid=True), ForeignKey("organizacion.id", ondelete="CASCADE"), nullable=False)
+    version = Column(Integer)  # NULL si no se creo version
+    publicado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    usuario_id = Column(UUID(as_uuid=True), ForeignKey("usuario.id", ondelete="SET NULL"))
+    origen = Column(Text, nullable=False)  # publish | patch_edificios
+    resultado = Column(Text, nullable=False)  # publicado | rechazado (sin CHECK: puede crecer)
+    status_http = Column(Integer, nullable=False)
+    motivo = Column(Text)
+    tiempos_ms = Column(JSONB)
+    validacion = Column(JSONB)
+    bytes = Column(Integer)  # Content-Length del cuerpo recibido
+    conteos = Column(JSONB)
 
 
 class Edificio(Base):

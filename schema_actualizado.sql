@@ -156,6 +156,98 @@ CREATE TABLE public.poi (
 
 
 --
+-- Name: publicacion; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.publicacion (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    sede_id uuid NOT NULL,
+    organizacion_id uuid NOT NULL,
+    version integer,
+    publicado_en timestamp with time zone DEFAULT now() NOT NULL,
+    usuario_id uuid,
+    origen text NOT NULL,
+    resultado text NOT NULL,
+    status_http integer NOT NULL,
+    motivo text,
+    tiempos_ms jsonb,
+    validacion jsonb,
+    bytes integer,
+    conteos jsonb
+);
+
+
+--
+-- Name: TABLE publicacion; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.publicacion IS 'Registro de cada ejecucion del pipeline de publicacion del grafo (exito o rechazo). Sobrevive a la retencion de snapshots.';
+
+
+--
+-- Name: COLUMN publicacion.version; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.publicacion.version IS 'Version de snapshot creada; NULL si la ejecucion no creo version.';
+
+
+--
+-- Name: COLUMN publicacion.publicado_en; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.publicacion.publicado_en IS 'Momento en que se registro la ejecucion (tambien para los rechazos).';
+
+
+--
+-- Name: COLUMN publicacion.origen; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.publicacion.origen IS 'Ruta que ejecuto el pipeline: publish (POST /publish) | patch_edificios (PATCH /edificios).';
+
+
+--
+-- Name: COLUMN publicacion.resultado; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.publicacion.resultado IS 'Valores vigentes: publicado | rechazado. Sin CHECK a proposito: se pueden agregar valores (p. ej. bloqueado_n3).';
+
+
+--
+-- Name: COLUMN publicacion.motivo; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.publicacion.motivo IS 'detail del error que se devolvio, recortado a 1000 caracteres; NULL si se publico.';
+
+
+--
+-- Name: COLUMN publicacion.tiempos_ms; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.publicacion.tiempos_ms IS 'tiempos_ms de la respuesta si se publico; en un rechazo, solo total (si se alcanzo a cronometrar).';
+
+
+--
+-- Name: COLUMN publicacion.validacion; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.publicacion.validacion IS 'Bloque validacion de la respuesta (Nivel 3 informativo); NULL en los rechazos.';
+
+
+--
+-- Name: COLUMN publicacion.bytes; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.publicacion.bytes IS 'Tamano en bytes del cuerpo HTTP recibido (Content-Length).';
+
+
+--
+-- Name: COLUMN publicacion.conteos; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.publicacion.conteos IS 'Largo de cada coleccion lista del payload (nodes, edges, ...).';
+
+
+--
 -- Name: ruta_evacuacion; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -345,6 +437,14 @@ ALTER TABLE ONLY public.poi
 
 
 --
+-- Name: publicacion publicacion_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.publicacion
+    ADD CONSTRAINT publicacion_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: ruta_evacuacion_arista ruta_evacuacion_arista_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -455,6 +555,13 @@ CREATE INDEX idx_nodo_sede ON public.nodo USING btree (sede_id);
 --
 
 CREATE INDEX idx_poi_organizacion ON public.poi USING btree (organizacion_id);
+
+
+--
+-- Name: idx_publicacion_sede_fecha; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_publicacion_sede_fecha ON public.publicacion USING btree (sede_id, publicado_en DESC);
 
 
 --
@@ -617,6 +724,30 @@ ALTER TABLE ONLY public.poi
 
 
 --
+-- Name: publicacion publicacion_organizacion_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.publicacion
+    ADD CONSTRAINT publicacion_organizacion_id_fkey FOREIGN KEY (organizacion_id) REFERENCES public.organizacion(id) ON DELETE CASCADE;
+
+
+--
+-- Name: publicacion publicacion_sede_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.publicacion
+    ADD CONSTRAINT publicacion_sede_id_fkey FOREIGN KEY (sede_id) REFERENCES public.sede(id) ON DELETE CASCADE;
+
+
+--
+-- Name: publicacion publicacion_usuario_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.publicacion
+    ADD CONSTRAINT publicacion_usuario_id_fkey FOREIGN KEY (usuario_id) REFERENCES public.usuario(id) ON DELETE SET NULL;
+
+
+--
 -- Name: ruta_evacuacion_arista ruta_evacuacion_arista_arista_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -743,6 +874,12 @@ ALTER TABLE public.nodo ENABLE ROW LEVEL SECURITY;
 --
 
 ALTER TABLE public.poi ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: publicacion; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.publicacion ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: ruta_evacuacion; Type: ROW SECURITY; Schema: public; Owner: -

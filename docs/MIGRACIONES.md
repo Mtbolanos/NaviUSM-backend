@@ -39,12 +39,12 @@ entran a git, y el mismo comando sirve en el host y en el contenedor.
 **No lo habilites sin leer esto.**
 
 Autogenerate compara los modelos ORM contra la base y escribe la diferencia. El problema es que
-en este proyecto los modelos **no describen la base completa**: el esquema tiene 16 tablas y
-`app/models.py` declara 9 modelos. Las tablas del grafo y de zonas —`nodo`, `arista`, `poi`, `zona`,
+en este proyecto los modelos **no describen la base completa**: el esquema tiene 17 tablas y
+`app/models.py` declara 10 modelos. Las tablas del grafo y de zonas —`nodo`, `arista`, `poi`, `zona`,
 `zona_caracteristica`, `ruta_evacuacion`, `ruta_evacuacion_arista`— se acceden con SQL crudo
 porque el proyecto no usa GeoAlchemy2.
 
-Entonces autogenerate ve 16 tablas en la base y 9 en el código, concluye que sobran 7, y
+Entonces autogenerate ve 17 tablas en la base y 10 en el código, concluye que sobran 7, y
 **genera una migración que borra el grafo completo.**
 
 `migrations/env.py` lo bloquea con una excepción explícita, antes de escribir archivo alguno.
@@ -81,6 +81,7 @@ Si algún día se completan los 7 modelos faltantes (con GeoAlchemy2), se puede 
 | `0006` | Tabla `conector` (con RLS e índice) y `nodo.conector_id` con su índice. Es `migraciones/004_conectores.sql` |
 | `0007` | `sede.contorno` (Polygon 4326, opcional). Es `migraciones/005_sede_contorno.sql` |
 | `0008` | Borra la tabla `sala` (redundante con `poi`). Es el final de `migraciones/003_edificio_pisos.sql` |
+| `0009` | Tabla `publicacion` (con RLS e índice `idx_publicacion_sede_fecha`): una fila por ejecución del publish (`POST /publish` y `PATCH /edificios`), publicada o rechazada. Aparte de `snapshot` para sobrevivir a la retención. Nueva, no viene de `migraciones/`; ya está también en `schema_actualizado.sql` |
 
 Las 0004–0008 portan a la cadena cambios que se aplicaron a mano con los `.sql` de `migraciones/`.
 Son idempotentes (`IF [NOT] EXISTS`, y la conversión de pisos solo corre si `piso_min` existe), y
@@ -90,23 +91,36 @@ tienen `downgrade()` real. Los downgrade de 0005 y 0008 son con pérdida: 0005 v
 
 Verificado sobre bases desechables: el dump de `191c032` + `upgrade head` da exactamente el mismo
 `pg_dump --schema-only` que el `schema_actualizado.sql` actual, y `downgrade 0003` devuelve
-exactamente el esquema de `191c032`.
+exactamente el esquema de `191c032`. Con la 0009 se repitió: `191c032` + `upgrade head` = el
+`schema_actualizado.sql` con `publicacion`; `downgrade 0008` = el `schema_actualizado.sql` anterior,
+y `stamp 0008` + `upgrade head` sobre el dump anterior tampoco deja diferencias (idempotente).
+
+La 0009 es la primera revisión que no porta un `.sql` aplicado a mano: es un cambio nuevo. Por eso
+el `schema_actualizado.sql` se actualizó en el mismo commit, con los bloques tal como los emite
+`pg_dump` (insertados en orden, no agregados al final), para que una instalación nueva siga
+quedando en `head`.
 
 ## Bases que ya existían antes de esta cadena
 
 Depende de en qué estado esté la base. **Respaldar antes** en todos los casos
 (`pg_dump -Fc`).
 
-**Producción (y cualquier base con `migraciones/003`–`005` ya aplicadas a mano, o creada con el
-`schema_actualizado.sql` actual):** el esquema ya está en `head`; solo falta que Alembic lo sepa.
+**Producción (y cualquier base con `migraciones/003`–`005` ya aplicadas a mano, sin
+`alembic_version`):** el esquema está en `0008`; solo falta que Alembic lo sepa, y después aplicar
+lo que vino de verdad nuevo (la 0009, que crea `publicacion`).
 
 ```bash
-# 1. Comprobar que el esquema es el de head (no debe haber diferencias)
+# 1. Comprobar que el esquema es el de 0008 (no debe haber diferencias): compararlo con el de una
+#    base desechable creada con schema_actualizado.sql y llevada a 0008 (stamp head + downgrade 0008)
 pg_dump --schema-only --no-owner --no-privileges -d naviusm > actual.sql
-#    ...y compararlo con el de una base desechable creada con schema_actualizado.sql
 # 2. Registrar la revisión, sin ejecutar nada
-alembic stamp head
+alembic stamp 0008
+# 3. Aplicar lo nuevo
+alembic upgrade head
 ```
+
+**Base creada con el `schema_actualizado.sql` actual** (ya trae `publicacion`): está en `head`;
+`alembic stamp head`.
 
 Se usa `stamp` y no `upgrade head` aunque las migraciones sean idempotentes, porque `upgrade head`
 sí escribe algo en una base que ya está al día: la 0002 vuelve a sembrar el catálogo de
@@ -133,7 +147,7 @@ porque todas las revisiones son idempotentes.
 
 - Base con el esquema base (10 tablas): crea `alembic_version`, pasa por 0001 sin hacer nada, y
   0002 le crea las 4 tablas que le faltan; de ahí en adelante, cada revisión aplica lo suyo.
-- Base creada con el dump completo actual (16 tablas): ninguna revisión cambia el esquema (la 0002
+- Base creada con el dump completo actual (17 tablas): ninguna revisión cambia el esquema (la 0002
   crea `sala` y la 0008 la borra). Aun así, para producción se recomienda `alembic stamp head`;
   ver «Bases que ya existían antes de esta cadena».
 
