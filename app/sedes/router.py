@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
+from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
@@ -29,6 +30,21 @@ def admin_edificios(request: Request, db: Session = Depends(get_db), user: Usuar
     sedes = get_sedes_by_org(db, user.organizacion_id)
     sedes_data = [{"id": str(s.id), "lat": float(s.latitud), "lng": float(s.longitud), "zoom": s.zoom_defecto} for s in sedes]
     return templates.TemplateResponse(request, "gestion_edificios.html", {"user": user, "sedes": sedes, "sedes_json": sedes_data})
+
+# Editor del interior de un edificio: mismo editor, limitado al edificio (se cambia de edificio sin recargar)
+@router.get("/admin/edificios/editar")
+def admin_editar_edificio(
+    request: Request, sede: str | None = None, edificio: str | None = None,
+    db: Session = Depends(get_db), user: Usuario = Depends(get_current_user),
+):
+    sedes = get_sedes_by_org(db, user.organizacion_id)
+    actual = next((s for s in sedes if str(s.id) == sede), None)
+    if actual is None:
+        return RedirectResponse(f"{request.scope.get('root_path', '')}/admin/edificios", status_code=303)
+    sedes_data = [{"id": str(s.id), "lat": float(s.latitud), "lng": float(s.longitud), "zoom": s.zoom_defecto} for s in sedes]
+    return templates.TemplateResponse(request, "editor_edificio.html", {
+        "user": user, "sedes": sedes, "sedes_json": sedes_data, "sede_actual": actual, "edificio_inicial": edificio or "",
+    })
 
 @router.get("/admin/sedes")
 def admin_sedes(request: Request, db: Session = Depends(get_db), user: Usuario = Depends(get_current_user)):

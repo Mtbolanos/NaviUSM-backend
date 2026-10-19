@@ -83,6 +83,18 @@ class EdificioPiso(Base):
     numero = Column(Integer, primary_key=True)
     nombre = Column(String(100))  # opcional; sin nombre se muestra "Piso N" / "Subterráneo N"
 
+class Conector(Base):
+    """Escalera, ascensor o rampa: agrupa sus paradas (un nodo por piso, nodo.conector_id)."""
+    __tablename__ = "conector"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
+    sede_id = Column(UUID(as_uuid=True), ForeignKey("sede.id", ondelete="CASCADE"), nullable=False)
+    edificio_id = Column(UUID(as_uuid=True), ForeignKey("edificio.id", ondelete="CASCADE"), nullable=False)
+    organizacion_id = Column(UUID(as_uuid=True), ForeignKey("organizacion.id", ondelete="CASCADE"), nullable=False)
+    tipo = Column(String(20), nullable=False)  # escalera | ascensor | rampa
+    nombre = Column(String(255))
+
+
 class ApiKey(Base):
     __tablename__ = "api_key"
 
