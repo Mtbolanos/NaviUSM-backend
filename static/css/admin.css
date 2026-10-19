@@ -1179,3 +1179,26 @@ kbd {
 .cursor-hint[hidden] {
   display: none;
 }
+
+/* ===== Enlaces a Gestión de Edificios (panel y popup) ===== */
+.panel-link,
+.pop-link {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--naviusm-blue);
+  text-decoration: none;
+}
+
+.pop-link {
+  margin: 0 0 10px;
+}
+
+.panel-link:hover,
+.pop-link:hover {
+  text-decoration: underline;
+}
+
+.panel-link[hidden] {
+  display: none;
+}
