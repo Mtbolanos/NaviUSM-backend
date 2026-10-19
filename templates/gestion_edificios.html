@@ -13,38 +13,52 @@
         {% endfor %}
       </select>
     </div>
-    <button class="btn-ed btn-ed-accent" onclick="publicarCambios()">Guardar cambios</button>
+    <div class="d-flex align-items-center gap-3">
+      <span id="dirty-badge" class="dirty-badge" hidden>Cambios sin guardar</span>
+      <button id="btn-guardar" class="btn-ed btn-ed-accent" onclick="guardarCambios()" disabled>Guardar cambios</button>
+    </div>
   </div>
 
   <div class="nv-card">
-    <p class="text-muted mb-0" style="font-size: 13px;">Ajusta los niveles de cada edificio. Las salas se administran como
-      puntos "Entrada / Sala" directamente en el mapa.</p>
-
-    <div class="table-responsive mt-3" style="border-radius: 6px; border: 1px solid var(--naviusm-border);">
-      <table class="table table-hover mb-0" style="font-size: 14px;">
-        <thead>
-          <tr>
-            <th style="width: 40%;">Nombre del Edificio</th>
-            <th class="text-center" style="width: 40%;">Rango de Pisos</th>
-            <th class="text-end" style="width: 20%;">Acciones</th>
-          </tr>
-        </thead>
-        <tbody id="bld-table-body">
-          <tr>
-            <td colspan="3" class="text-center text-muted py-4">Cargando datos...</td>
-          </tr>
-        </tbody>
-      </table>
+    <div class="bld-toolbar">
+      <div class="search-box">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="bld-search" type="search" class="form-control form-control-sm" placeholder="Buscar edificio" autocomplete="off" oninput="renderLista()">
+      </div>
+      <p class="panel-meta mb-0">Los pisos se muestran de arriba hacia abajo. Al cambiar el número de un piso, sus puntos se mueven con él.
+        Las salas se crean como puntos "Entrada / Sala" en el mapa.</p>
+    </div>
+    <div id="bld-list" class="bld-list">
+      <div class="panel-meta py-4 text-center">Cargando datos...</div>
     </div>
   </div>
  </div>
+</div>
+
+<!-- Vista de un piso en el mapa (solo lectura) -->
+<div class="modal fade" id="pisoMapModal" tabindex="-1" aria-labelledby="pisoMapTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title fw-bold" id="pisoMapTitle">Piso</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body p-0">
+        <div id="piso-map" class="piso-map"></div>
+      </div>
+      <div class="modal-footer">
+        <span id="piso-map-meta" class="panel-meta me-auto"></span>
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>
   window.GESTION_CONFIG = {
     rootPath: "{{ request.scope.get('root_path', '') }}",
     sedesInfo: {{ sedes_json | tojson }}
-    };
+  };
 </script>
-<script src="{{ url_for('static', path='js/gestion_edificios.js') }}?v=0.5.0"></script>
+<script src="{{ url_for('static', path='js/gestion_edificios.js') }}?v=0.7.0"></script>
 {% endblock %}
