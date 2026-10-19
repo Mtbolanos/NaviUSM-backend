@@ -972,6 +972,43 @@ kbd {
   color: var(--naviusm-blue) !important;
 }
 
+/* Atribución compacta (ui.js): colapsada queda como un botón (i) redondo en la esquina */
+.leaflet-control-attribution.nv-attrib {
+  cursor: default;
+  border-top-left-radius: 6px;
+}
+
+.leaflet-control-attribution.nv-attrib.is-collapsed {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  margin: 0 6px 6px 0;
+  border: 1px solid var(--naviusm-border);
+  border-radius: 50%;
+  font-size: 0;
+  line-height: 0;
+  overflow: hidden;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.leaflet-control-attribution.nv-attrib.is-collapsed > * {
+  display: none;
+}
+
+.leaflet-control-attribution.nv-attrib.is-collapsed::after {
+  content: "i";
+  font: 700 12px/1 Georgia, 'Times New Roman', serif;
+  color: var(--naviusm-text);
+}
+
+.leaflet-control-attribution.nv-attrib.is-collapsed:focus-visible {
+  outline: 2px solid var(--naviusm-accent);
+  outline-offset: 2px;
+}
+
 /* ===== Ayuda de atajos ===== */
 .help-grid {
   display: grid;

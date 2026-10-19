@@ -109,8 +109,54 @@
     });
   }
 
+  // Atribución compacta (permitido por las guías de atribución de la OSMF): se muestra completa al abrir
+  // el mapa y se colapsa a un botón (i) al interactuar con el mapa o a los 5 segundos. Clic (o Enter)
+  // en el botón la vuelve a mostrar. Leaflet reescribe el contenido del control, así que el estado
+  // colapsado va en una clase del contenedor.
+  function compactAttribution(map) {
+    const ctrl = map.attributionControl;
+    if (!ctrl || ctrl._nvCompact) return;
+    ctrl._nvCompact = true;
+    const el = ctrl.getContainer();
+    el.classList.add('nv-attrib');
+    const setCollapsed = (collapsed) => {
+      el.classList.toggle('is-collapsed', collapsed);
+      if (collapsed) {
+        el.setAttribute('role', 'button');
+        el.setAttribute('tabindex', '0');
+        el.setAttribute('aria-label', 'Ver créditos del mapa');
+        el.title = 'Créditos del mapa';
+      } else {
+        el.removeAttribute('role');
+        el.removeAttribute('tabindex');
+        el.removeAttribute('aria-label');
+        el.removeAttribute('title');
+      }
+    };
+    let auto = setTimeout(() => setCollapsed(true), 5000);
+    const collapseOnUse = (e) => {
+      if (el.contains(e.target)) return;
+      clearTimeout(auto);
+      setCollapsed(true);
+    };
+    ['mousedown', 'wheel', 'touchstart', 'keydown'].forEach(ev =>
+      map.getContainer().addEventListener(ev, collapseOnUse, { passive: true }));
+    el.addEventListener('click', (e) => {
+      if (e.target.closest('a')) return; // los enlaces funcionan normal
+      clearTimeout(auto);
+      setCollapsed(!el.classList.contains('is-collapsed'));
+    });
+    el.addEventListener('keydown', (e) => {
+      if (el.classList.contains('is-collapsed') && (e.key === 'Enter' || e.key === ' ')) {
+        e.preventDefault();
+        setCollapsed(false);
+      }
+    });
+  }
+
   // Agrega el mapa base a un mapa Leaflet creado con maxZoom: NV.mapMaxZoom()
   function baseLayer(map) {
+    compactAttribution(map);
     const t = tilesConfig();
     const addRaster = () => {
       if (map.getMaxZoom() > RASTER_MAX_ZOOM) map.setMaxZoom(RASTER_MAX_ZOOM);
