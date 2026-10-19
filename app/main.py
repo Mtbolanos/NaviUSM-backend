@@ -16,7 +16,7 @@ from app.zonas.router import router as zonas_router
 
 app = FastAPI(
     title="NaviUSM API móvil",
-    version="1.0.0",
+    version="1.3.0",
     description=(
         "API de consumo para la app móvil.\n\n"
         "**Flujo:** `POST /api/v1/mobile/session` con el header `X-API-Key` → usar el `access_token` "
