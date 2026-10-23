@@ -27,3 +27,6 @@ setup_db.sh
 
 # Archivos de lock de editores (LibreOffice, etc.)
 .~lock.*#
+# Pruebas
+.pytest_cache/
+reporte-pruebas.xml

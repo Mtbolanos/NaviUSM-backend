@@ -1,0 +1,4 @@
+# Dependencias para desarrollo y pruebas (no se instalan en la imagen de producción)
+-r requirements.txt
+pytest==9.1.1
+httpx2==2.16.0  # cliente que usa el TestClient de Starlette (reemplaza a httpx)
