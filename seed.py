@@ -1,10 +1,10 @@
 # Creación inicial de datos en BD
-from pydantic import EmailStr, Field, ValidationError
+from pydantic import EmailStr, Field, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.database import SessionLocal
 from app.models import Caracteristica, Organizacion, Usuario
-from app.security import get_hash_password
+from app.security import BCRYPT_MAX_BYTES, get_hash_password, password_too_long
 
 CARACTERISTICAS = [
     ("zona_segura", "Zona segura", "#1f7a5c"),
@@ -36,6 +36,13 @@ class SeedSettings(BaseSettings):
     org_slug: str = Field(min_length=1, max_length=100, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
     admin_email: EmailStr
     admin_password: str = Field(min_length=12)
+
+    @field_validator("admin_password")
+    @classmethod
+    def validar_largo_bcrypt(cls, v: str) -> str:
+        if password_too_long(v):
+            raise ValueError(f"ADMIN_PASSWORD no puede superar los {BCRYPT_MAX_BYTES} bytes")
+        return v
 
 
 def seed_data():

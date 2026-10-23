@@ -5,7 +5,14 @@ from sqlalchemy.orm import Session
 from app.auth.crud import change_user_password
 from app.database import get_db
 from app.models import Usuario
-from app.security import get_current_user, login_user, set_auth_cookie, verify_password
+from app.security import (
+    BCRYPT_MAX_BYTES,
+    get_current_user,
+    login_user,
+    password_too_long,
+    set_auth_cookie,
+    verify_password,
+)
 from app.config import settings
 
 from app.templating import templates
@@ -75,6 +82,12 @@ def post_change_password(
             request,
             "cambiar_contrasena.html",
             {"user": user, "error": "La contraseña actual es incorrecta."},
+        )
+    if password_too_long(new_password):
+        return templates.TemplateResponse(
+            request,
+            "cambiar_contrasena.html",
+            {"user": user, "error": f"La contraseña nueva no puede superar los {BCRYPT_MAX_BYTES} caracteres."},
         )
     change_user_password(db, user, new_password)
     return templates.TemplateResponse(

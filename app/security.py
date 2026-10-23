@@ -9,12 +9,25 @@ from app.models import Usuario
 
 fernet = Fernet(settings.secret_key)
 
+# bcrypt solo usa los primeros 72 bytes de la contraseña. Desde bcrypt 5 hashpw y checkpw lanzan
+# ValueError con contraseñas más largas en vez de truncarlas en silencio.
+BCRYPT_MAX_BYTES = 72
+
+
+def password_too_long(password: str) -> bool:
+    return len(password.encode("utf-8")) > BCRYPT_MAX_BYTES
+
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
+    # Se trunca igual que hacía bcrypt antes de la versión 5: compatible con los hashes ya guardados,
+    # y una contraseña larga en el login responde "credenciales inválidas" en vez de un error 500
+    candidate = plain_password.encode("utf-8")[:BCRYPT_MAX_BYTES]
+    return bcrypt.checkpw(candidate, hashed_password.encode("utf-8"))
 
 
 def get_hash_password(password: str) -> str:
+    if password_too_long(password):
+        raise ValueError(f"La contraseña no puede superar los {BCRYPT_MAX_BYTES} bytes")
     salt = bcrypt.gensalt()
     hashed = bcrypt.hashpw(password.encode("utf-8"), salt)
     return hashed.decode("utf-8")

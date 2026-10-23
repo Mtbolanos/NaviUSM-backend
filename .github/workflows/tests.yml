@@ -1,0 +1,65 @@
+name: Pruebas
+
+on:
+  push:
+    branches: [main, develop, "feature/**", "release/**", "hotfix/**"]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    name: Unitarias e integración
+    runs-on: ubuntu-latest
+
+    services:
+      db:
+        # Misma imagen que docker-compose.yml
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: naviusm
+          POSTGRES_PASSWORD: naviusm
+          POSTGRES_DB: naviusm_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U naviusm -d naviusm_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      TEST_DATABASE_URL: postgresql://naviusm:naviusm@localhost:5432/naviusm_test
+      PGPASSWORD: naviusm
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"  # misma versión que el Dockerfile
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Instalar dependencias
+        run: pip install -r requirements-dev.txt
+
+      - name: Aplicar el schema a la base de prueba
+        # Mismo filtro que docker/init/01-init.sh
+        run: |
+          grep -v '\\restrict\|\\unrestrict' schema_actualizado.sql \
+            | sed "s/OWNER TO postgres/OWNER TO naviusm/g" \
+            | psql -h localhost -U naviusm -d naviusm_test -v ON_ERROR_STOP=1 -q
+
+      - name: Ejecutar pruebas
+        run: pytest -ra --junitxml=reporte-pruebas.xml
+
+      - name: Guardar reporte
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: reporte-pruebas
+          path: reporte-pruebas.xml
