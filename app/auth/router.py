@@ -87,8 +87,7 @@ def post_change_password(
         return templates.TemplateResponse(
             request,
             "cambiar_contrasena.html",
-            {"user": user, "error": f"La contraseña nueva no puede superar los {BCRYPT_MAX_BYTES} bytes "
-                                    "(72 caracteres sin tildes ni símbolos especiales)."},
+            {"user": user, "error": f"La contraseña nueva no puede superar los {BCRYPT_MAX_BYTES} caracteres."},
         )
     change_user_password(db, user, new_password)
     return templates.TemplateResponse(
